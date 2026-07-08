@@ -4,7 +4,8 @@ const { literal } = require('sequelize');
 
 const { sendEmailVerificationMail } = require('../mailer/senders/email-verification');
 const { generateVerificationCode, generateTokenForUserId, generateCookiesForToken, 
-    organizeErrors, deleteUserFields } = require('../utils');
+    organizeErrors, deleteUserFields, updateUserEmailVerificationAndExpiration,
+    checkForVerificationCodeExpiry } = require('../utils');
 
 const User = require('../models/User');
 const EmailVerification = require('../models/EmailVerification');
@@ -36,10 +37,10 @@ exports.login = async (req, res) => {
     if (!passwordMatch) return res.send({ success, message });
 
     if (!user.email_verified) {
-        const verificationCode = generateVerificationCode();
-        user.verification_code = verificationCode;
-        await user.save();
+        const verificationCode = generateVerificationCode(4);
+        await updateUserEmailVerificationAndExpiration(user, verificationCode);
         // sendEmailVerificationMail(email, verificationCode);
+
         message = 'Please check your email for confirmation code';
     } else {
         message = 'Logged in successfully';
@@ -72,9 +73,8 @@ exports.signup = async (req, res) => {
    
     const user = await User.create(req.body);
 
-    const verificationCode = generateVerificationCode();
-    user.email_verification_code = verificationCode;
-    await user.save();
+    const verificationCode = generateVerificationCode(4);
+    await updateUserEmailVerificationAndExpiration(user, verificationCode);
     // sendEmailVerificationMail(email, verificationCode);
 
     const token = generateTokenForUserId(user.id);
@@ -82,7 +82,7 @@ exports.signup = async (req, res) => {
     generateCookiesForToken(res, token);
 
     success = true;
-    message = 'Please check your email for confirmation code';
+    message = 'Check your email for verification code';
     res.status(200).json({ success, message, token });
 }
 
@@ -92,7 +92,7 @@ exports.verifyEmail = async (req, res) => {
     if (!result.isEmpty()) return res.send({ errors });
 
     const totalVerificationAttempts = 3;
-    const { id: user_id, email_verification_code } = req.user;
+    const { id: user_id, email_verification_code, email_verification_code_expiration } = req.user;
     const userEmailVerifications = await EmailVerification.findAndCountAll({ user_id });
 
     const remainingAttemps = Number(totalVerificationAttempts - (userEmailVerifications.count + 1));
@@ -102,6 +102,11 @@ exports.verifyEmail = async (req, res) => {
     
     // const { verification_code, verification_channel } = matchedData(req);
     const { verification_code, verification_channel } = req.body;
+
+    // Check if verification_code not expired
+    let message = 'Verification code Expired.';
+    const codeNotExpired = checkForVerificationCodeExpiry(email_verification_code_expiration);
+    if (!codeNotExpired) return res.send({ success, message });
     
     let email_verification_code_correct = true;
     const userData = await User.findByPk(user_id);
@@ -112,7 +117,7 @@ exports.verifyEmail = async (req, res) => {
         userData.email_verification_attempts += 1;
         await userData.save()
 
-        let message = 'Too many wrong attempts. Wait for 5 minutes';
+        message = 'Too many wrong attempts. Wait for 5 minutes';
         if (remainingAttemps < 1) return res.send({ exceededLimit, success, message });
 
         exceededLimit = false;
@@ -132,4 +137,8 @@ exports.verifyEmail = async (req, res) => {
     success = true;
     message = 'Email verification successful.'
     res.send({ success, message })
+}
+
+exports.requestPasswordReset = async (req, res) => {
+
 }
