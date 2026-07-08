@@ -1,12 +1,12 @@
 const crypto = require('crypto');
 const { createSigner } = require('fast-jwt');
 
-const generateVerificationCode = () => {
+const generateVerificationCode = digits => {
     // Generate a secure random integer between 0 and 9999
     const code = crypto.randomInt(0, 10000);
     
     // Ensure it is always 4 digits long by padding with leading zeros if needed
-    return code.toString().padStart(4, '0');
+    return code.toString().padStart(digits, '0');
 };
 
 const generateTokenForUserId = id => {
@@ -49,5 +49,18 @@ const deleteUserFields = user => {
     return user;
 }
 
+const updateUserEmailVerificationAndExpiration = async (user, verificationCode) => {
+    console.log('updateUserEmailVerificationAndExpiration')
+    user.email_verification_code = verificationCode;
+    user.email_verification_code_expiration = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await user.save();
+    console.log(new Date(Date.now() + 24 * 60 * 60 * 1000))
+}
+
+const checkForVerificationCodeExpiry = email_verification_code_expiration => {
+    return Date.now() <= new Date(email_verification_code_expiration);
+}
+
 module.exports = { generateVerificationCode, generateTokenForUserId, generateCookiesForToken, 
-    organizeErrors, deleteUserFields };
+    organizeErrors, deleteUserFields, updateUserEmailVerificationAndExpiration,
+    checkForVerificationCodeExpiry };
