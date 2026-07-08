@@ -13,7 +13,10 @@ const User = postgresSequelize.define('User',
     password: { type: DataTypes.STRING, allowNull: false },
     email_verified: { type: DataTypes.BOOLEAN, defaultValue: false },
     email_verification_code: { type: DataTypes.STRING, defaultValue: null },
+    email_verification_code_expiration: { type: DataTypes.DATE, defaultValue: null },
     email_verification_attempts: { type: DataTypes.INTEGER, defaultValue: 0 },
+    password_reset_code: { type: DataTypes.STRING, defaultValue: null },
+    password_reset_code_expiration: { type: DataTypes.DATE, defaultValue: null },
   },
   {
     // Other model options go here
