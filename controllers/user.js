@@ -130,8 +130,7 @@ exports.verifyEmail = async (req, res) => {
     await EmailVerification.create({ user_id, verification_code, verification_channel, email_verification_code_correct });
 
     const email_verified = true;
-    await userData.update({ email_verified, email_verification_code, 
-        email_verification_attempts: literal('email_verification_attempts + 1') });
+    await userData.update({ email_verified, email_verification_attempts: literal('email_verification_attempts + 1') });
     await userData.save();
 
     success = true;
