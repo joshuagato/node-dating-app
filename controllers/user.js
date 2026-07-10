@@ -5,7 +5,7 @@ const { literal } = require('sequelize');
 const { sendEmailVerificationMail } = require('../mailer/senders/email-verification');
 const { generateVerificationCode, generateTokenForUserId, generateCookiesForToken, 
     organizeErrors, deleteUserFields, updateUserEmailVerificationAndExpiration,
-    checkForVerificationCodeExpiry } = require('../utils');
+    checkForVerificationCodeExpiry, updateUserPasswordResetConfirmationAndExpiration } = require('../utils/functions');
 
 const User = require('../models/User');
 const EmailVerification = require('../models/EmailVerification');
@@ -103,19 +103,28 @@ exports.verifyEmail = async (req, res) => {
     // const { verification_code, verification_channel } = matchedData(req);
     const { verification_code, verification_channel } = req.body;
 
-    // Check if verification_code not expired
     let message = 'Verification code Expired.';
+    let verification_code_expired = true;
+
+    const emailVerificationData = await EmailVerification.create({ 
+        user_id, verification_code, verification_channel,
+    });
+
+    // Check if verification_code not expired
     const codeNotExpired = checkForVerificationCodeExpiry(email_verification_code_expiration);
-    if (!codeNotExpired) return res.send({ success, message });
+    if (!codeNotExpired) {
+        emailVerificationData.verification_code_expired = verification_code_expired;
+        emailVerificationData.save()
+        return res.send({ success, message });
+    }
     
-    let email_verification_code_correct = true;
-    const userData = await User.findByPk(user_id);
-    
+    let verification_code_correct = false;
+    verification_code_expired = false;
+    emailVerificationData.verification_code_expired = verification_code_expired;
+
     if (email_verification_code.toString() !== verification_code.toString()) {
-        email_verification_code_correct = false;
-        await EmailVerification.create({ user_id, verification_code, verification_channel, email_verification_code_correct });
-        userData.email_verification_attempts += 1;
-        await userData.save()
+        emailVerificationData.verification_code_correct = verification_code_correct;
+        await emailVerificationData.save()
 
         message = 'Too many wrong attempts. Wait for 5 minutes';
         if (remainingAttemps < 1) return res.send({ exceededLimit, success, message });
@@ -126,18 +135,39 @@ exports.verifyEmail = async (req, res) => {
 
         return res.send({ success, message });
     }
-
-    await EmailVerification.create({ user_id, verification_code, verification_channel, email_verification_code_correct });
-
+    
+    verification_code_correct = true;
+    emailVerificationData.verification_code_correct = verification_code_correct;
+    await emailVerificationData.save();
+    
+    const userData = await User.findByPk(user_id);
     const email_verified = true;
-    await userData.update({ email_verified, email_verification_attempts: literal('email_verification_attempts + 1') });
+    await userData.update({ email_verified });
     await userData.save();
 
     success = true;
-    message = 'Email verification successful.'
-    res.send({ success, message })
+    message = 'Email verification successful.';
+    res.send({ success, message });
 }
 
 exports.requestPasswordReset = async (req, res) => {
+    const result = validationResult(req);
+    const errors = organizeErrors(result.array());
+    if (!result.isEmpty()) return res.send({ errors });
 
+    const { email } = matchedData(req);
+    const user = req.user;
+
+    const userData = await User.findOne({ where: { email } });
+
+    let message = 'Email not Found! Enter the email You used to Sign Up.'
+    let success = false;
+    if (!userData) return res.send({ success, message });
+    
+    const confirmationCode = generateVerificationCode(6);
+    await updateUserPasswordResetConfirmationAndExpiration(user, confirmationCode);
+
+    message = 'Kindly Check Your Email Inbox/Junk/Spam for Confirmation Code.'
+    success = true;
+    res.send({ success, message });
 }
