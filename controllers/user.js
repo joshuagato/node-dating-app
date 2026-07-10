@@ -9,6 +9,7 @@ const { generateVerificationCode, generateTokenForUserId, generateCookiesForToke
 
 const User = require('../models/User');
 const EmailVerificationAttempt = require('../models/EmailVerificationAttempt');
+const PasswordResetAttempt = require('../models/PasswordResetAttempt');
 
 exports.profile = async (req, res) => {
     const message = 'Profile not found.';
@@ -157,7 +158,7 @@ exports.requestPasswordReset = async (req, res) => {
     if (!result.isEmpty()) return res.send({ errors });
 
     const { email } = matchedData(req);
-    const user = req.user;
+    // const user = req.user;
 
     const userData = await User.findOne({ where: { email } });
 
@@ -166,9 +167,74 @@ exports.requestPasswordReset = async (req, res) => {
     if (!userData) return res.send({ success, message });
     
     const confirmationCode = generateVerificationCode(6);
-    await updateUserPasswordResetConfirmationAndExpiration(user, confirmationCode);
+    await updateUserPasswordResetConfirmationAndExpiration(userData, confirmationCode);
+    // sendEmailVerificationMail(email, verificationCode);
 
-    message = 'Kindly Check Your Email Inbox/Junk/Spam for Confirmation Code.'
+    const token = generateTokenForUserId(userData.id);
+
+    generateCookiesForToken(res, token);
+
+    message = 'Kindly Check Your Email Inbox/Junk/Spam for Confirmation Code.';
     success = true;
+    res.send({ success, message });
+}
+
+exports.confirmPasswordReset = async (req, res) => {
+    const result = validationResult(req);
+    const errors = organizeErrors(result.array());
+    if (!result.isEmpty()) return res.send({ errors });
+
+    const { id: user_id, password_reset_code, password_reset_code_expiration } = req.user;
+    let success = false;
+    
+    // const { verification_code } = matchedData(req);
+    const { verification_code } = req.body;
+
+    let message = 'Verification code Expired.';
+    let verification_code_expired = true;
+
+    const passwordResetAttempt = await PasswordResetAttempt.create({ 
+        user_id, verification_code,
+    });
+
+    // Check if verification_code not expired
+    const codeNotExpired = checkForVerificationCodeExpiry(password_reset_code_expiration);
+    if (!codeNotExpired) {
+        passwordResetAttempt.verification_code_expired = verification_code_expired;
+        passwordResetAttempt.save();
+        return res.send({ success, message });
+    }
+
+    const totalVerificationAttempts = 3;
+    const userPasswordResetAttempt = await PasswordResetAttempt.findAndCountAll({ user_id });
+
+    const remainingAttemps = Number(totalVerificationAttempts - (userPasswordResetAttempt.count + 1));
+
+    let exceededLimit = true;
+    
+    let verification_code_correct = false;
+    verification_code_expired = false;
+    passwordResetAttempt.verification_code_expired = verification_code_expired;
+
+    if (password_reset_code.toString() !== verification_code.toString()) {
+        passwordResetAttempt.verification_code_correct = verification_code_correct;
+        await passwordResetAttempt.save()
+
+        message = 'Too many wrong attempts. Wait for 5 minutes';
+        if (remainingAttemps < 1) return res.send({ exceededLimit, success, message });
+
+        exceededLimit = false;
+        const attempts = remainingAttemps === 1 ? 'attempt' : 'attempts';
+        message = `Wrong verification code. ${remainingAttemps} more ${attempts}`;
+
+        return res.send({ success, message });
+    }
+    
+    verification_code_correct = true;
+    passwordResetAttempt.verification_code_correct = verification_code_correct;
+    await passwordResetAttempt.save();
+
+    success = true;
+    message = 'Email verification successful.';
     res.send({ success, message });
 }
