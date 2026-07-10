@@ -8,7 +8,7 @@ const { generateVerificationCode, generateTokenForUserId, generateCookiesForToke
     checkForVerificationCodeExpiry, updateUserPasswordResetConfirmationAndExpiration } = require('../utils/functions');
 
 const User = require('../models/User');
-const EmailVerification = require('../models/EmailVerification');
+const EmailVerificationAttempts = require('../models/EmailVerificationAttempts');
 
 exports.profile = async (req, res) => {
     const message = 'Profile not found.';
@@ -93,9 +93,9 @@ exports.verifyEmail = async (req, res) => {
 
     const totalVerificationAttempts = 3;
     const { id: user_id, email_verification_code, email_verification_code_expiration } = req.user;
-    const userEmailVerifications = await EmailVerification.findAndCountAll({ user_id });
+    const emailVerificationAttempts = await EmailVerificationAttempts.findAndCountAll({ user_id });
 
-    const remainingAttemps = Number(totalVerificationAttempts - (userEmailVerifications.count + 1));
+    const remainingAttemps = Number(totalVerificationAttempts - (emailVerificationAttempts.count + 1));
 
     let exceededLimit = true;
     let success = false;
@@ -106,25 +106,25 @@ exports.verifyEmail = async (req, res) => {
     let message = 'Verification code Expired.';
     let verification_code_expired = true;
 
-    const emailVerificationData = await EmailVerification.create({ 
+    const emailVerificationAttempts = await EmailVerificationAttempts.create({ 
         user_id, verification_code, verification_channel,
     });
 
     // Check if verification_code not expired
     const codeNotExpired = checkForVerificationCodeExpiry(email_verification_code_expiration);
     if (!codeNotExpired) {
-        emailVerificationData.verification_code_expired = verification_code_expired;
-        emailVerificationData.save()
+        emailVerificationAttempts.verification_code_expired = verification_code_expired;
+        emailVerificationAttempts.save()
         return res.send({ success, message });
     }
     
     let verification_code_correct = false;
     verification_code_expired = false;
-    emailVerificationData.verification_code_expired = verification_code_expired;
+    emailVerificationAttempts.verification_code_expired = verification_code_expired;
 
     if (email_verification_code.toString() !== verification_code.toString()) {
-        emailVerificationData.verification_code_correct = verification_code_correct;
-        await emailVerificationData.save()
+        emailVerificationAttempts.verification_code_correct = verification_code_correct;
+        await emailVerificationAttempts.save()
 
         message = 'Too many wrong attempts. Wait for 5 minutes';
         if (remainingAttemps < 1) return res.send({ exceededLimit, success, message });
@@ -137,8 +137,8 @@ exports.verifyEmail = async (req, res) => {
     }
     
     verification_code_correct = true;
-    emailVerificationData.verification_code_correct = verification_code_correct;
-    await emailVerificationData.save();
+    emailVerificationAttempts.verification_code_correct = verification_code_correct;
+    await emailVerificationAttempts.save();
     
     const userData = await User.findByPk(user_id);
     const email_verified = true;
