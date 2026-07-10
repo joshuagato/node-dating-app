@@ -9,7 +9,7 @@ const PasswordResetAttempt = postgresSequelize.define('PasswordResetAttempt',
     user_id: { type: DataTypes.UUID, references: { model: 'Users', key: 'id' }, allowNull: true },
     verification_code: { type: DataTypes.STRING, defaultValue: null },
     verification_code_correct: { type: DataTypes.BOOLEAN, defaultValue: false },
-    device: { type: DataTypes.STRING, defaultValue: null },
+    verification_code_expired: { type: DataTypes.BOOLEAN, defaultValue: false },
   },
   {
     updatedAt: false
