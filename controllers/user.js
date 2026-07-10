@@ -91,13 +91,7 @@ exports.verifyEmail = async (req, res) => {
     const errors = organizeErrors(result.array());
     if (!result.isEmpty()) return res.send({ errors });
 
-    const totalVerificationAttempts = 3;
     const { id: user_id, email_verification_code, email_verification_code_expiration } = req.user;
-    const emailVerificationAttempt = await EmailVerificationAttempt.findAndCountAll({ user_id });
-
-    const remainingAttemps = Number(totalVerificationAttempts - (emailVerificationAttempt.count + 1));
-
-    let exceededLimit = true;
     let success = false;
     
     // const { verification_code, verification_channel } = matchedData(req);
@@ -117,6 +111,13 @@ exports.verifyEmail = async (req, res) => {
         emailVerificationAttempt.save()
         return res.send({ success, message });
     }
+
+    const totalVerificationAttempts = 3;
+    const userEmailVerificationAttempt = await EmailVerificationAttempt.findAndCountAll({ user_id });
+
+    const remainingAttemps = Number(totalVerificationAttempts - (userEmailVerificationAttempt.count + 1));
+
+    let exceededLimit = true;
     
     let verification_code_correct = false;
     verification_code_expired = false;
