@@ -5,11 +5,14 @@ const { literal } = require('sequelize');
 const { sendEmailVerificationMail } = require('../mailer/senders/email-verification');
 const { generateVerificationCode, generateTokenForUserId, generateCookiesForToken, 
     organizeErrors, deleteUserFields, updateUserEmailVerificationAndExpiration,
-    checkForVerificationCodeExpiry, updateUserPasswordResetConfirmationAndExpiration } = require('../utils/functions');
+    checkForVerificationCodeExpiry, updateUserPasswordResetConfirmationAndExpiration,
+    formatPasswordChangedString, calculateDaysDifference, checkForChangedPasswordInThePast
+} = require('../utils/functions');
 
 const User = require('../models/User');
 const EmailVerificationAttempt = require('../models/EmailVerificationAttempt');
 const PasswordResetAttempt = require('../models/PasswordResetAttempt');
+const PasswordReset = require('../models/PasswordReset');
 
 exports.profile = async (req, res) => {
     const message = 'Profile not found.';
@@ -31,12 +34,20 @@ exports.login = async (req, res) => {
     let message = 'Email or Password is wrong';
     
     const user = await User.findOne({ where: { email } });
+    const { id: user_id } = user;
     if (!user) return res.json({ success, message });
     
     const passwordMatch = await bcrypt.compare(password, user.password);
 
-    if (!passwordMatch) return res.send({ success, message });
+    if (!passwordMatch) {
+        userPasswordResets = await PasswordReset.findAll({ where: { user_id }, order: [['createdAt', 'ASC']] });
+    
+        message = await checkForChangedPasswordInThePast(userPasswordResets, password);
+        if (message) return res.send({ success, message });
 
+        return res.send({ success, message });        
+    }
+        
     if (!user.email_verified) {
         const verificationCode = generateVerificationCode(4);
         await updateUserEmailVerificationAndExpiration(user, verificationCode);
@@ -236,5 +247,40 @@ exports.confirmPasswordReset = async (req, res) => {
 
     success = true;
     message = 'Email verification successful.';
+    res.send({ success, message });
+}
+
+exports.resetPassword = async (req, res) => {
+    const result = validationResult(req);
+    const errors = organizeErrors(result.array());
+    if (!result.isEmpty()) return res.send({ errors });
+
+    let { password } = matchedData(req);
+    const { id: user_id } = req.user;
+
+    const userData = await User.findByPk(user_id);
+
+    let message = 'User not Found!';
+    let success = false;
+    if (!userData) return res.send({ success, message });
+    
+    // Password Stuff
+    message = "You entered your Current Password. Please, enter a New One!"
+    const passwordMatch = await bcrypt.compare(password, userData.password);
+    if (passwordMatch) return res.send({ success, message });
+
+    userPasswordResets = await PasswordReset.findAll({ where: { user_id }, order: [['createdAt', 'ASC']] });
+    
+    message = await checkForChangedPasswordInThePast(userPasswordResets, password);
+    if (message) return res.send({ success, message });
+
+    const salt = await bcrypt.genSalt(10);
+    password = await bcrypt.hash(password, salt);
+
+    await userData.update({ password });
+    await PasswordReset.create({ user_id, password });
+
+    message = 'Password Reset Successful.';
+    success = true;
     res.send({ success, message });
 }
