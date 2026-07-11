@@ -13,6 +13,7 @@ const User = require('../models/User');
 const EmailVerificationAttempt = require('../models/EmailVerificationAttempt');
 const PasswordResetAttempt = require('../models/PasswordResetAttempt');
 const PasswordReset = require('../models/PasswordReset');
+const { response } = require('express');
 
 exports.profile = async (req, res) => {
     const message = 'Profile not found.';
@@ -42,8 +43,8 @@ exports.login = async (req, res) => {
     if (!passwordMatch) {
         userPasswordResets = await PasswordReset.findAll({ where: { user_id }, order: [['createdAt', 'ASC']] });
     
-        message = await checkForChangedPasswordInThePast(userPasswordResets, password);
-        if (message) return res.send({ success, message });
+        const response = await checkForChangedPasswordInThePast(userPasswordResets, password);
+        if (response) return res.send({ success, message: response });
 
         return res.send({ success, message });        
     }
