@@ -1,8 +1,6 @@
 const { DataTypes } = require('sequelize');
 const { postgresSequelize } = require('../database/postgresql');
 
-const { VERIFICATION_CHANNEL } = require('../utils/constants');
-
 const PasswordResetAttempt = postgresSequelize.define('PasswordResetAttempt',
   {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
