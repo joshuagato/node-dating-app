@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { createSigner } = require('fast-jwt');
+const bcrypt = require('bcryptjs');
 
 exports.generateVerificationCode = digits => {
     // Generate a secure random integer between 0 and 9999
@@ -64,3 +65,44 @@ exports.updateUserPasswordResetConfirmationAndExpiration = async (user, confirma
 exports.checkForVerificationCodeExpiry = email_verification_code_expiration => {
     return Date.now() <= new Date(email_verification_code_expiration);
 }
+
+const formatPasswordChangedString = days => {
+    const message = "Entered Password was Changed less than a day ago.";
+
+    const daysformat = days >= 2 ? `${Math.floor(days)} days` : 'a day';
+    if (days < 1) return message;
+
+    return `Entered Password was Changed ${daysformat} ago`;
+}
+
+const calculateDaysDifference = date => {
+    const oneDay = 24 * 60 * 60 * 1000;
+    const difference = new Date(Date.now()) - new Date(date);
+    const daysDifference = difference / oneDay;
+    return daysDifference;
+}
+
+exports.checkForChangedPasswordInThePast = async (userPasswordResets, password) => {
+    let nextRecordAfterMatched = false;
+    let message = '';
+
+    for (const [index, userPasswordReset] of userPasswordResets.entries()) {
+        let days;
+
+        if (nextRecordAfterMatched) {
+            days = calculateDaysDifference(userPasswordReset.createdAt);
+            message = formatPasswordChangedString(days);
+            break;
+        }
+
+        const passwordMatch = await bcrypt.compare(password, userPasswordReset.password);
+        
+        if (passwordMatch)
+            nextRecordAfterMatched = true;
+    }
+    
+    return message;
+}
+
+exports.formatPasswordChangedString = formatPasswordChangedString;
+exports.calculateDaysDifference = calculateDaysDifference;
