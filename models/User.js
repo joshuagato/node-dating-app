@@ -2,12 +2,17 @@ const { Sequelize, DataTypes } = require('sequelize');
 const { postgresSequelize } = require('../database/postgresql');
 // const sequelize = new Sequelize('sqlite::memory:');
 
+const { GENDER } = require('../utils/constants');
+
 const User = postgresSequelize.define('User',
   {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     email: { type: DataTypes.STRING, unique: true, allowNull: false },
-    firstname: { type: DataTypes.STRING },
-    lastname: { type: DataTypes.STRING },
+    first_name: { type: DataTypes.STRING },
+    last_name: { type: DataTypes.STRING },
+    other_names: { type: DataTypes.STRING },
+    gender: { type: DataTypes.ENUM, values: [GENDER.MAN, GENDER.WOMAN] },
+    interested_in: { type: DataTypes.ENUM, values: [GENDER.MAN, GENDER.WOMAN, GENDER.EVERONE] },
     date_of_birth: { type: DataTypes.DATEONLY },
     country: { type: DataTypes.STRING },
     password: { type: DataTypes.STRING, allowNull: false },
