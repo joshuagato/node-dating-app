@@ -6,4 +6,15 @@ const VERIFICATION_CHANNEL = {
     LOGIN
 }
 
-module.exports = { VERIFICATION_CHANNEL };
+
+const MAN = 'man';
+const WOMAN = 'woman';
+const EVERONE = 'everyone';
+
+const GENDER = {
+    MAN,
+    WOMAN,
+    EVERONE
+}
+
+module.exports = { VERIFICATION_CHANNEL, GENDER };
