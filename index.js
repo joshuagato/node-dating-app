@@ -13,6 +13,7 @@ const { log } = require('console-log-colors');
 const { connectPostgreSql } = require('./database/postgresql');
 
 const { authRouter } = require('./routes/auth');
+const { userRouter } = require('./routes/user');
 
 // Adds headers: Access-Control-Allow-Origin: *
 app.use(cors({
@@ -43,6 +44,7 @@ router.get('/login', (req, res) => {
 });
 
 app.use('/auth', authRouter);
+app.use('/user', userRouter);
 
 const port = process.env.PORT || 4001;
 
