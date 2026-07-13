@@ -41,6 +41,9 @@ exports.setupProfile = async (req, res) => {
 
     req.body.user_id = user_id;
     await UserProfile.create(req.body);
+
+    const basic_profile_setup = true;
+    await user.update({ basic_profile_setup });
     
     message = 'Profile Saved.';
     success = true;
