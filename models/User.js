@@ -17,13 +17,8 @@ const User = postgresSequelize.define('User',
         country: { type: DataTypes.STRING },
         password: { type: DataTypes.STRING, allowNull: false },
         email_verified: { type: DataTypes.BOOLEAN, defaultValue: false },
-        email_verification_code: { type: DataTypes.STRING(4), defaultValue: null },
-        email_verification_code_expiration: { type: DataTypes.DATE, defaultValue: null },
-        password_reset_code: { type: DataTypes.STRING(6), defaultValue: null },
-        password_reset_code_expiration: { type: DataTypes.DATE, defaultValue: null },
-    },
-    {
-
+        basic_profile_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
+        advanced_profile_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
     },
 );
 
