@@ -23,7 +23,7 @@ exports.getProfile = async (req, res) => {
     res.status(200).json(user);
 }
 
-exports.setupProfile = async (req, res) => {
+exports.setupBasicProfile = async (req, res) => {
     const result = validationResult(req);
     const errors = organizeErrors(result.array());
     if (!result.isEmpty()) return res.send({ errors });
