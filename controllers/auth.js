@@ -1,19 +1,21 @@
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
-const { literal } = require('sequelize');
+const { literal, where } = require('sequelize');
 
 const { sendEmailVerificationMail } = require('../mailer/senders/email-verification');
 const { generateVerificationCode, generateTokenForUserId, generateCookiesForToken, 
     organizeErrors, deleteUserFields, updateUserEmailVerificationAndExpiration,
     checkForVerificationCodeExpiry, updateUserPasswordResetConfirmationAndExpiration,
-    formatPasswordChangedString, calculateDaysDifference, checkForChangedPasswordInThePast
+    formatPasswordChangedString, calculateDaysDifference, checkForChangedPasswordInThePast,
+    setUserEmailVerificationRequest,
 } = require('../utils/functions');
+const { TWENTY_FOUR_HOURS_FROM_NOW } = require('../utils/constants');
 
 const User = require('../models/User');
 const EmailVerificationAttempt = require('../models/EmailVerificationAttempt');
 const PasswordResetAttempt = require('../models/PasswordResetAttempt');
 const PasswordReset = require('../models/PasswordReset');
-const { response } = require('express');
+const EmailVerificationRequest = require('../models/EmailVerificationRequest');
 
 exports.profile = async (req, res) => {
     const message = 'Profile not found.';
@@ -65,7 +67,9 @@ exports.login = async (req, res) => {
     generateCookiesForToken(res, token);
 
     success = true;
-    res.status(200).json({ success, message, token });
+    const basic_profile_setup = user.basic_profile_setup;
+    const email_verified = user.email_verified;
+    res.status(200).json({ success, message, token, basic_profile_setup, email_verified });
 }
 
 exports.signup = async (req, res) => {
@@ -88,7 +92,13 @@ exports.signup = async (req, res) => {
     const user = await User.create(req.body);
 
     const verificationCode = generateVerificationCode(4);
-    await updateUserEmailVerificationAndExpiration(user, verificationCode);
+
+    const verificationRequestData = { 
+        user_id: user.id, email_verification_code: verificationCode, 
+        email_verification_code_expiration: TWENTY_FOUR_HOURS_FROM_NOW
+    };
+
+    await setUserEmailVerificationRequest(verificationRequestData);
     // sendEmailVerificationMail(email, verificationCode);
 
     const token = generateTokenForUserId(user.id);
@@ -105,41 +115,49 @@ exports.verifyEmail = async (req, res) => {
     const errors = organizeErrors(result.array());
     if (!result.isEmpty()) return res.send({ errors });
 
-    const { id: user_id, email_verification_code, email_verification_code_expiration } = req.user;
+    const { id: user_id } = req.user;
     let success = false;
     
     // const { verification_code, verification_channel } = matchedData(req);
-    const { verification_code, verification_channel } = req.body;
-
-    let message = 'Verification code Expired.';
-    let verification_code_expired = true;
+    const { verification_code: verification_code_entered, verification_channel } = req.body;
 
     const emailVerificationAttempt = await EmailVerificationAttempt.create({ 
-        user_id, verification_code, verification_channel,
+        user_id, verification_code_entered, verification_channel,
     });
 
+    // TODO: Add gt than 24h b4 now
+    const emailVerificationRequest = await EmailVerificationRequest.findOne({ 
+        where: { user_id }, order: [['createdAt', 'DESC']] });
+    
+    const { email_verification_code, email_verification_code_expiration } = emailVerificationRequest;
+    
+    let message = 'Verification code Expired.';
+    let verification_code_expired = true;
     // Check if verification_code not expired
-    const codeNotExpired = checkForVerificationCodeExpiry(email_verification_code_expiration);
-    if (!codeNotExpired) {
+    const codeExpired = checkForVerificationCodeExpiry(email_verification_code_expiration);
+    if (codeExpired) {
         emailVerificationAttempt.verification_code_expired = verification_code_expired;
         emailVerificationAttempt.save()
         return res.send({ success, message });
     }
 
     const totalVerificationAttempts = 3;
-    const userEmailVerificationAttempt = await EmailVerificationAttempt.findAndCountAll({ user_id });
-
-    const remainingAttemps = Number(totalVerificationAttempts - (userEmailVerificationAttempt.count + 1));
+    let verification_code_correct = false;
 
     let exceededLimit = true;
-    
-    let verification_code_correct = false;
     verification_code_expired = false;
     emailVerificationAttempt.verification_code_expired = verification_code_expired;
 
-    if (email_verification_code.toString() !== verification_code.toString()) {
+    if (email_verification_code.toString() !== verification_code_entered.toString()) {
+
         emailVerificationAttempt.verification_code_correct = verification_code_correct;
-        await emailVerificationAttempt.save()
+        await emailVerificationAttempt.save();
+
+        const userEmailVerificationAttempt = await EmailVerificationAttempt.findAndCountAll({ 
+            where: { user_id, verification_code_correct },
+        });
+
+        const remainingAttemps = Number(totalVerificationAttempts - userEmailVerificationAttempt.count);
 
         message = 'Too many wrong attempts. Wait for 5 minutes';
         if (remainingAttemps < 1) return res.send({ exceededLimit, success, message });
@@ -211,8 +229,8 @@ exports.confirmPasswordReset = async (req, res) => {
     });
 
     // Check if verification_code not expired
-    const codeNotExpired = checkForVerificationCodeExpiry(password_reset_code_expiration);
-    if (!codeNotExpired) {
+    const codeExpired = checkForVerificationCodeExpiry(password_reset_code_expiration);
+    if (codeExpired) {
         passwordResetAttempt.verification_code_expired = verification_code_expired;
         passwordResetAttempt.save();
         return res.send({ success, message });
