@@ -1,6 +1,9 @@
 const crypto = require('crypto');
 const { createSigner } = require('fast-jwt');
 const bcrypt = require('bcryptjs');
+const { TWENTY_FOUR_HOURS_FROM_NOW } = require('./constants');
+const EmailVerificationRequest = require('../models/EmailVerificationRequest');
+const PasswordResetRequest = require('../models/PasswordResetRequest');
 
 exports.generateVerificationCode = digits => {
     // Generate a secure random integer between 0 and 9999
@@ -52,18 +55,22 @@ exports.deleteUserFields = user => {
 
 exports.updateUserEmailVerificationAndExpiration = async (user, verificationCode) => {
     user.email_verification_code = verificationCode;
-    user.email_verification_code_expiration = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    user.email_verification_code_expiration = TWENTY_FOUR_HOURS_FROM_NOW;
     await user.save();
 }
 
 exports.updateUserPasswordResetConfirmationAndExpiration = async (user, confirmationCode) => {
     user.password_reset_code = confirmationCode;
-    user.password_reset_code_expiration = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    user.password_reset_code_expiration = TWENTY_FOUR_HOURS_FROM_NOW;
     await user.save();
 }
 
+exports.setUserEmailVerificationRequest = async data => await EmailVerificationRequest.create(data);
+
+exports.setUserPasswordResetRequest = async data => await PasswordResetRequest.create(data);
+
 exports.checkForVerificationCodeExpiry = email_verification_code_expiration => {
-    return Date.now() <= new Date(email_verification_code_expiration);
+    return Date.now() > new Date(email_verification_code_expiration);
 }
 
 const formatPasswordChangedString = days => {
