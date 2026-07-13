@@ -2,6 +2,10 @@ const { body } = require('express-validator');
 
 const validateEmail = () => body('email').trim().notEmpty().withMessage('Email cannot be empty').isEmail().withMessage('Enter a valid email address');
 
+const validateName = (fieldName) => body(fieldName).trim().notEmpty().withMessage('Name cannot be empty');
+
+const validateCode = (fieldName, length) => body(fieldName).trim().notEmpty().withMessage('Code cannot be empty').isLength({ min: length, max:  length}).withMessage(`Code must be at least ${length} characters long`);
+
 const validatePassword = () => body('password').trim().notEmpty().withMessage('Password cannot be empty').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long');
 
 const validateConfirmPassword = () => body('passwordConfirmation').trim().notEmpty().withMessage('Password confirmation cannot be empty').custom((value, { req }) => {
@@ -9,4 +13,4 @@ const validateConfirmPassword = () => body('passwordConfirmation').trim().notEmp
 }).withMessage('Password confirmation must match with Password');
 
 
-module.exports = { validateEmail, validatePassword, validateConfirmPassword };
+module.exports = { validateEmail, validatePassword, validateConfirmPassword, validateName, validateCode };
