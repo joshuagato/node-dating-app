@@ -8,12 +8,16 @@ const VERIFICATION_CHANNEL = {
 
 
 const MAN = 'man';
+const MEN = 'men';
 const WOMAN = 'woman';
+const WOMEN = 'women';
 const EVERONE = 'everyone';
 
 const GENDER = {
     MAN,
+    MEN,
     WOMAN,
+    WOMEN,
     EVERONE
 }
 
