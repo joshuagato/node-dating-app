@@ -1,7 +1,9 @@
 const crypto = require('crypto');
 const { createSigner } = require('fast-jwt');
 const bcrypt = require('bcryptjs');
+
 const { TWENTY_FOUR_HOURS_FROM_NOW } = require('./constants');
+
 const EmailVerificationRequest = require('../models/EmailVerificationRequest');
 const PasswordResetRequest = require('../models/PasswordResetRequest');
 
@@ -9,7 +11,7 @@ exports.generateVerificationCode = digits => {
     // Generate a secure random integer between 0 and 9999
     const code = crypto.randomInt(0, 10000);
     
-    // Ensure it is always 4 digits long by padding with leading zeros if needed
+    // Ensure it is always passed digits long by padding with leading zeros if needed
     return code.toString().padStart(digits, '0');
 };
 
