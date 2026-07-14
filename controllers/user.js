@@ -1,17 +1,9 @@
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
 
-const { sendEmailVerificationMail } = require('../mailer/senders/email-verification');
-const { generateVerificationCode, generateTokenForUserId, generateCookiesForToken, 
-    organizeErrors, deleteUserFields, updateUserEmailVerificationAndExpiration,
-    checkForVerificationCodeExpiry, updateUserPasswordResetConfirmationAndExpiration,
-    formatPasswordChangedString, calculateDaysDifference, checkForChangedPasswordInThePast
-} = require('../utils/functions');
+const { organizeErrors, deleteUserFields } = require('../utils/functions');
 
 const User = require('../models/User');
-const EmailVerificationAttempt = require('../models/EmailVerificationAttempt');
-const PasswordResetAttempt = require('../models/PasswordResetAttempt');
-const PasswordReset = require('../models/PasswordReset');
 const UserProfile = require('../models/UserProfile');
 
 exports.getProfile = async (req, res) => {
