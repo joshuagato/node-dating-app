@@ -7,6 +7,7 @@ const EmailVerificationAttempt = postgresSequelize.define('EmailVerificationAtte
     {
         id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
         user_id: { type: DataTypes.UUID, references: { model: 'Users', key: 'id' } },
+        email_verification_request_id: { type: DataTypes.UUID, references: { model: 'EmailVerificationRequests', key: 'id' } },
         verification_code_entered: { type: DataTypes.STRING, defaultValue: null },
         verification_code_correct: { type: DataTypes.BOOLEAN, allowNull: true },
         verification_code_expired: { type: DataTypes.BOOLEAN, defaultValue: false },
