@@ -7,11 +7,13 @@ const { TWENTY_FOUR_HOURS_FROM_NOW } = require('./constants');
 const EmailVerificationRequest = require('../models/EmailVerificationRequest');
 const PasswordResetRequest = require('../models/PasswordResetRequest');
 
-exports.generateVerificationCode = digits => {
-    // Generate a secure random integer between 0 and 9999
+exports.generateEmailVerificationCode = digits => {
     const code = crypto.randomInt(0, 10000);
-    
-    // Ensure it is always passed digits long by padding with leading zeros if needed
+    return code.toString().padStart(digits, '0');
+};
+
+exports.generatePasswordResetVerificationCode = digits => {
+    const code = crypto.randomInt(0, 1000000);
     return code.toString().padStart(digits, '0');
 };
 
