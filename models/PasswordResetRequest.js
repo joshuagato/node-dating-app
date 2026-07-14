@@ -1,11 +1,10 @@
 const { DataTypes } = require('sequelize');
 const { postgresSequelize } = require('../database/postgresql');
 
-const PasswordReset = postgresSequelize.define('PasswordReset',
+const PasswordResetRequest = postgresSequelize.define('PasswordResetRequest',
     {
         id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-        user_id: { type: DataTypes.UUID, references: { model: 'Users', key: 'id' }, allowNull: true },
-        password: { type: DataTypes.STRING, allowNull: false },
+        user_id: { type: DataTypes.UUID, references: { model: 'Users', key: 'id' } },
         password_reset_code: { type: DataTypes.STRING(6), defaultValue: null },
         password_reset_code_expiration: { type: DataTypes.DATE, defaultValue: null },
     },
@@ -14,4 +13,4 @@ const PasswordReset = postgresSequelize.define('PasswordReset',
     },
 );
 
-module.exports = PasswordReset;
+module.exports = PasswordResetRequest;
