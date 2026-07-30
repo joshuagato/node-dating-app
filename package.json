@@ -23,6 +23,7 @@
     "express": "^5.2.1",
     "express-validator": "^7.3.2",
     "fast-jwt": "^6.2.4",
+    "formidable": "^3.5.4",
     "jsonwebtoken": "^9.0.3",
     "mailtrap": "^4.6.1",
     "multer": "^2.2.0",
