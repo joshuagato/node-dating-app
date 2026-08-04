@@ -1,3 +1,4 @@
+const path = require('path');
 require('dotenv').config();
 const express = require('express');
 const cookieParser = require('cookie-parser');
@@ -14,6 +15,7 @@ const { connectPostgreSql } = require('./database/postgresql');
 
 const { authRouter } = require('./routes/auth');
 const { userRouter } = require('./routes/user');
+const { IsAuthenticated } = require('./middlewares/isAuthenticated');
 
 // Adds headers: Access-Control-Allow-Origin: *
 app.use(cors({
@@ -24,9 +26,9 @@ app.use(cors({
 const renderProtocol = host => host.includes('localhost') ? 'http' : 'https';
 
 // middleware that is specific to this router
-const timeLog = (req, res, next) => {    
-  log.cyan(`URL: ${renderProtocol(req.host)}://${req.host}${req.url}`, `Time: ${new Date(Date.now())}`);
-  next();
+const timeLog = (req, res, next) => {
+    log.cyan(`URL: ${renderProtocol(req.host)}://${req.host}${req.url}`, `Time: ${new Date(Date.now())}`);
+    next();
 };
 router.use(timeLog);
 app.use(router); // If placed at the bottom, any other router apart from those in this file won't be registered
@@ -35,12 +37,17 @@ app.use(router); // If placed at the bottom, any other router apart from those i
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Making the pictures folder accessible
+app.use("/pictures", express.static(path.join(__dirname, "pictures")));
+
+// app.use(express.static(path.join(__dirname, "uploads")));
+
 app.get('/', (req, res) => {
-  res.send('Hello World!');
+    res.send('Hello World!');
 });
 
 router.get('/login', (req, res) => {
-  res.json({msg: 'Auth login page', obj: req.headers});
+    res.json({ msg: 'Auth login page', obj: req.headers });
 });
 
 app.use('/auth', authRouter);
@@ -49,8 +56,8 @@ app.use('/user', userRouter);
 const port = process.env.PORT || 4001;
 
 app.listen(port, () => {
-  log.magenta(`Running on http://localhost:${port}`);
-  connectPostgreSql();
+    log.magenta(`Running on http://localhost:${port}`);
+    connectPostgreSql();
 });
 
 
