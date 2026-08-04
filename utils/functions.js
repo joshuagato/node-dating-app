@@ -93,6 +93,10 @@ const calculateDaysDifference = date => {
     return daysDifference;
 }
 
+exports.getRawFile = (rawFiles, file) => {
+    return rawFiles.find(rawFile => './' + rawFile.originalname.toString() === file.path.toString());
+};
+
 exports.checkForChangedPasswordInThePast = async (userPasswordResets, password) => {
     let nextRecordAfterMatched = false;
     let message = '';
@@ -107,11 +111,11 @@ exports.checkForChangedPasswordInThePast = async (userPasswordResets, password) 
         }
 
         const passwordMatch = await bcrypt.compare(password, userPasswordReset.password);
-        
+
         if (passwordMatch)
             nextRecordAfterMatched = true;
     }
-    
+
     return message;
 }
 
