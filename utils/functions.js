@@ -119,5 +119,9 @@ exports.checkForChangedPasswordInThePast = async (userPasswordResets, password) 
     return message;
 }
 
+exports.capitalize = string => string.charAt(0).toUpperCase() + string.substring(1);
+
+exports.transform = string => string.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
 exports.formatPasswordChangedString = formatPasswordChangedString;
 exports.calculateDaysDifference = calculateDaysDifference;
