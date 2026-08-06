@@ -1,10 +1,17 @@
 const { body } = require('express-validator');
+const { capitalize } = require('../utils/functions');
 
 const validateEmail = () => body('email').trim().notEmpty().withMessage('Email cannot be empty').isEmail().withMessage('Enter a valid email address');
 
-const validateName = (fieldName) => body(fieldName).trim().notEmpty().withMessage('Name cannot be empty');
+const validatePictures = () => body('imagesBody').trim().notEmpty().withMessage('You must upload at least 2 Pictures');
 
-const validateCode = (fieldName, length) => body(fieldName).trim().notEmpty().withMessage('Code cannot be empty').isLength({ min: length, max:  length}).withMessage(`Code must be at least ${length} characters long`);
+const validateName = fieldName => body(fieldName).trim().notEmpty().withMessage(`${capitalize(fieldName)} cannot be empty`);
+
+const validateLocation = fieldName => body(fieldName).trim().notEmpty().withMessage(`${capitalize(fieldName)} cannot be empty`);
+
+const validateCoordinates = fieldName => body(fieldName).isDecimal().withMessage(`${capitalize(fieldName)} cannot be empty`);
+
+const validateCode = (fieldName, length) => body(fieldName).trim().notEmpty().withMessage('Code cannot be empty').isLength({ min: length, max: length }).withMessage(`Code must be at least ${length} characters long`);
 
 const validatePassword = () => body('password').trim().notEmpty().withMessage('Password cannot be empty').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long');
 
@@ -13,4 +20,7 @@ const validateConfirmPassword = () => body('passwordConfirmation').trim().notEmp
 }).withMessage('Password confirmation must match with Password');
 
 
-module.exports = { validateEmail, validatePassword, validateConfirmPassword, validateName, validateCode };
+module.exports = {
+    validateEmail, validatePassword, validateConfirmPassword, validateName, validateCode,
+    validateLocation, validateCoordinates
+};
