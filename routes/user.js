@@ -4,8 +4,12 @@ const path = require('path');
 const multer = require('multer');
 
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
-const { getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles } = require('../controllers/user');
-const { validateName, validatePassword, validateConfirmPassword } = require('../validators');
+const { getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
+    setupFinalProfile
+} = require('../controllers/user');
+const { validateName, validatePassword, validateConfirmPassword, validateLocation,
+    validateCoordinates
+} = require('../validators');
 const { upload } = require('../utils/utils');
 
 
@@ -16,6 +20,11 @@ router.put('/basic-profile',
     IsAuthenticated, setupBasicProfile);
 
 router.put('/advanced-profile', IsAuthenticated, upload.array('images'), setupAdvancedProfile);
+
+router.put('/final-profile',
+    validateLocation('country'), validateLocation('city'),
+    validateCoordinates('longitude'), validateCoordinates('latitude'),
+    IsAuthenticated, setupFinalProfile);
 
 router.get('/get-potential-match-profiles', IsAuthenticated, getPotentialMatchProfiles);
 
