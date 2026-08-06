@@ -22,7 +22,7 @@ exports.setupBasicProfile = async (req, res) => {
     if (!result.isEmpty()) return res.send({ errors });
 
     const { id: user_id } = req.user;
-    const { first_name, last_name } = matchedData(req);
+    // const { first_name, last_name } = matchedData(req);
 
     let success = false;
     let message = 'User not found.';
@@ -78,6 +78,27 @@ exports.setupAdvancedProfile = async (req, res) => {
     }
 
     message = 'Pictures saved';
+    success = true;
+    res.send({ success, message });
+}
+
+exports.setupFinalProfile = async (req, res) => {
+    const result = validationResult(req);
+    const errors = organizeErrors(result.array());
+    if (!result.isEmpty()) return res.send({ errors });
+
+    const { id: user_id } = req.user;
+
+    let success = false;
+    let message = 'User not found.';
+
+    const user = await User.findByPk(user_id);
+    if (!user) return res.json({ success, message });
+
+    req.body.final_profile_setup = true;
+    await user.update(req.body);
+
+    message = 'Location saved';
     success = true;
     res.send({ success, message });
 }
