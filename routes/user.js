@@ -5,7 +5,7 @@ const multer = require('multer');
 
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const { getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
-    setupFinalProfile
+    setupFinalProfile, getEncountersProfiles
 } = require('../controllers/user');
 const { validateName, validatePassword, validateConfirmPassword, validateLocation,
     validateCoordinates
@@ -25,6 +25,8 @@ router.put('/final-profile',
     validateLocation('country'), validateLocation('city'),
     validateCoordinates('longitude'), validateCoordinates('latitude'),
     IsAuthenticated, setupFinalProfile);
+
+router.get('/get-encounters-profiles', IsAuthenticated, getEncountersProfiles);
 
 router.get('/get-potential-match-profiles', IsAuthenticated, getPotentialMatchProfiles);
 
