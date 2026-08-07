@@ -1,11 +1,37 @@
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
+const { Sequelize, Op } = require('sequelize');
 
 const { organizeErrors, deleteUserFields, getRawFile } = require('../utils/functions');
 
 const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
 const UserPicture = require('../models/UserPicture');
+
+// User -> UserProfile Associations
+User.hasOne(UserProfile, {
+    foreignKey: 'user_id',
+    as: 'profile'
+});
+
+UserProfile.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user_profile'
+});
+
+
+// User -> UserPicture Associations
+User.hasMany(UserPicture, {
+    foreignKey: 'user_id',
+    as: 'picture'
+});
+
+UserPicture.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user_picture'
+});
+
+
 
 exports.getProfile = async (req, res) => {
     const message = 'Profile not found.';
@@ -101,6 +127,102 @@ exports.setupFinalProfile = async (req, res) => {
     message = 'Location saved';
     success = true;
     res.send({ success, message });
+}
+
+exports.getEncountersProfiles = async (req, res) => {
+    let nearbyUsers = [];
+    const currentUser = req.user;
+    // const { max_distance } = req.query;
+
+    const { latitude, longitude, id: currentUserId } = currentUser;
+
+    const { max_distance = 11, limit = 20, offset = 0 } = req.query;
+
+    const users = await User.findAll({
+        attributes: [
+            'id',
+            [
+                Sequelize.literal(`
+                CONCAT(
+                    "User"."first_name",
+                    CASE 
+                        WHEN "profile"."last_name_on" = TRUE THEN CONCAT(' ', "User"."last_name")
+                        ELSE ''
+                    END,
+                    CASE 
+                        WHEN "profile"."other_names_on" = TRUE THEN CONCAT(' ', "User"."other_names")
+                        ELSE ''
+                    END
+                )
+            `),
+                'name'
+            ],
+            'gender',
+            'city',
+            [
+                Sequelize.literal(`
+                DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
+            `),
+                'age'
+            ],
+            [
+                Sequelize.literal(`
+                    ROUND(
+                        (
+                            6371 * acos(
+                                cos(radians(${latitude}))
+                                * cos(radians("User"."latitude"))
+                                * cos(radians("User"."longitude") - radians(${longitude}))
+                                + sin(radians(${latitude}))
+                                * sin(radians("User"."latitude"))
+                            )
+                        )::numeric, 1
+                    )
+                `),
+                'distance_km'
+            ]
+        ],
+        include: [
+            {
+                model: UserProfile,
+                as: 'profile',
+                attributes: [],
+                required: false
+            },
+            {
+                model: UserPicture,
+                as: 'picture',
+                attributes: ['path', 'position'],
+                required: false,
+                separate: true,
+                order: [['position', 'ASC']]
+            }
+        ],
+        where: {
+            id: { [Sequelize.Op.ne]: currentUserId },
+            latitude: { [Sequelize.Op.ne]: null },
+            longitude: { [Sequelize.Op.ne]: null },
+            [Sequelize.Op.and]: Sequelize.literal(`
+                (
+                    6371 * acos(
+                        cos(radians(${latitude}))
+                        * cos(radians("User"."latitude"))
+                        * cos(radians("User"."longitude") - radians(${longitude}))
+                        + sin(radians(${latitude}))
+                        * sin(radians("User"."latitude"))
+                    )
+                ) <= ${max_distance}
+            `)
+        },
+        order: [
+            [Sequelize.literal('distance_km'), 'ASC']
+        ],
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+    });
+
+    let success = true;
+    res.send({ success, users });
 }
 
 exports.getPotentialMatchProfiles = (req, res) => {
