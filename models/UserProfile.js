@@ -1,7 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const { postgresSequelize } = require('../database/postgresql');
 
-const UserProfile = postgresSequelize.define('UserProfile', 
+const UserProfile = postgresSequelize.define('UserProfile',
     {
         id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
         user_id: { type: DataTypes.UUID, references: { model: 'Users', key: 'id' } },
