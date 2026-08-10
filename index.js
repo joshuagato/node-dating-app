@@ -15,6 +15,7 @@ const { connectPostgreSql } = require('./database/postgresql');
 
 const { authRouter } = require('./routes/auth');
 const { userRouter } = require('./routes/user');
+const { encounterRouter } = require('./routes/encounter');
 const { IsAuthenticated } = require('./middlewares/isAuthenticated');
 
 // Adds headers: Access-Control-Allow-Origin: *
@@ -40,6 +41,8 @@ app.use(express.urlencoded({ extended: true }));
 // Making the pictures folder accessible
 app.use("/pictures", express.static(path.join(__dirname, "pictures")));
 
+app.use('/uploads/pictures', express.static(path.join(__dirname, 'uploads', 'pictures')));
+
 // app.use(express.static(path.join(__dirname, "uploads")));
 
 app.get('/', (req, res) => {
@@ -52,6 +55,7 @@ router.get('/login', (req, res) => {
 
 app.use('/auth', authRouter);
 app.use('/user', userRouter);
+app.use('/encounter', encounterRouter);
 
 const port = process.env.PORT || 4001;
 
