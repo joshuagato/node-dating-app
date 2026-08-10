@@ -1,31 +1,18 @@
-const SIGNUP = 'signup';
-const LOGIN = 'login';
-
 const VERIFICATION_CHANNEL = {
-    SIGNUP,
-    LOGIN
+    SIGNUP: 'signup', LOGIN: 'login'
 }
-
-
-const MAN = 'man';
-const MEN = 'men';
-const WOMAN = 'woman';
-const WOMEN = 'women';
-const EVERONE = 'everyone';
 
 const GENDER = {
-    MAN, MEN, WOMAN, WOMEN, EVERONE
+    MAN: 'man', MEN: 'men', WOMAN: 'woman', WOMEN: 'women', EVERONE: 'everyone'
 }
-
-const LIKE = 'like';
-const DISLIKE = 'dislike';
-const SUPER_LIKE = 'super-like';
-const PASS = 'pass';
 
 const ENCOUNTER_ACTION = {
-    LIKE, DISLIKE, SUPER_LIKE, PASS
+    LIKE: 'like', DISLIKE: 'dislike', SUPER_LIKE: 'super-like', PASS: 'pass'
 }
 
+const MATCH_STATUS = {
+    ACTIVE: 'active', ARCHIVED: 'archived', BLOCKED: 'blocked', REPORTED: 'reported'
+};
 
 const TWENTY_FOUR_HOURS_FROM_NOW = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
@@ -33,5 +20,5 @@ const TWENTY_FOUR_HOURS_BEFORE_NOW = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
 module.exports = {
     VERIFICATION_CHANNEL, GENDER, TWENTY_FOUR_HOURS_FROM_NOW, TWENTY_FOUR_HOURS_BEFORE_NOW,
-    ENCOUNTER_ACTION
+    ENCOUNTER_ACTION, MATCH_STATUS
 };
