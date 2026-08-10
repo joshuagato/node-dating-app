@@ -23,7 +23,7 @@ UserProfile.belongsTo(User, {
 // User -> UserPicture Associations
 User.hasMany(UserPicture, {
     foreignKey: 'user_id',
-    as: 'picture'
+    as: 'pictures'
 });
 
 UserPicture.belongsTo(User, {
@@ -130,8 +130,8 @@ exports.setupFinalProfile = async (req, res) => {
 }
 
 exports.getEncountersProfiles = async (req, res) => {
-    let nearbyUsers = [];
     const currentUser = req.user;
+    // let nearbyUsers = [];
     // const { max_distance } = req.query;
 
     const { latitude, longitude, id: currentUserId } = currentUser;
@@ -179,7 +179,7 @@ exports.getEncountersProfiles = async (req, res) => {
                         )::numeric, 1
                     )
                 `),
-                'distance_km'
+                'distance_from'
             ]
         ],
         include: [
@@ -191,7 +191,7 @@ exports.getEncountersProfiles = async (req, res) => {
             },
             {
                 model: UserPicture,
-                as: 'picture',
+                as: 'pictures',
                 attributes: ['path', 'position'],
                 required: false,
                 separate: true,
@@ -215,7 +215,7 @@ exports.getEncountersProfiles = async (req, res) => {
             `)
         },
         order: [
-            [Sequelize.literal('distance_km'), 'ASC']
+            [Sequelize.literal('distance_from'), 'ASC']
         ],
         limit: parseInt(limit),
         offset: parseInt(offset)
