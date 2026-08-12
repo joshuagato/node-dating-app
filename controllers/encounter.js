@@ -89,8 +89,8 @@ exports.getUsersWhoLikeMe = async (req, res) => {
             `),
                 'name'
             ],
-            ['createdAt', 'liked_at'],
-            'seen',
+            ['updatedAt', 'liked_at'],
+            ['seen_in_users_who_like_me', 'seen'],
             [
                 Sequelize.literal(`
                 DATE_PART('year', AGE(CURRENT_DATE, "initiator"."date_of_birth"))::integer
@@ -142,7 +142,7 @@ exports.getUsersWhoLikeMe = async (req, res) => {
                 ]
             }
         ],
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         raw: true
     });
 
@@ -211,8 +211,8 @@ exports.getUsersWhoDisLikeMe = async (req, res) => {
             `),
                 'name'
             ],
-            ['createdAt', 'liked_at'],
-            'seen',
+            ['updatedAt', 'disliked_at'],
+            ['seen_in_users_who_dislike_me', 'seen'],
             [
                 Sequelize.literal(`
                 DATE_PART('year', AGE(CURRENT_DATE, "initiator"."date_of_birth"))::integer
@@ -261,12 +261,12 @@ exports.getUsersWhoDisLikeMe = async (req, res) => {
                 ]
             }
         ],
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         raw: true
     });
 
-    const disLikes = incomingDisLikes.map(like => ({
-        ...like, liked_at: moment(like.liked_at, 'YYYYMMDD').fromNow()
+    const disLikes = incomingDisLikes.map(dislike => ({
+        ...dislike, disliked_at: moment(dislike.disliked_at, 'YYYYMMDD').fromNow()
     }))
 
     const unseen = disLikes.some(like => !like.seen);
