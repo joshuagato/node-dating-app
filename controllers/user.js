@@ -234,7 +234,7 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/ea02336a-cd0a-4d35-ab1b-4b49f2451915.jpeg',
             ],
             liked: '3 years',
-            seen: 'true'
+            seen: true,
         },
         {
             name: 'Joshua Gato',
