@@ -53,7 +53,7 @@ exports.likeUser = async (req, res) => {
     res.send({ success, match });
 }
 
-exports.getUserLikes = async (req, res) => {
+exports.getUsersWhoLikeMe = async (req, res) => {
     const { id: currentUserId } = req.user;
 
     // 1. Get IDs of users that the current user has already liked
@@ -160,7 +160,6 @@ exports.getUserLikes = async (req, res) => {
 
     let success = true;
     res.send({ success, unseen, likes });
-
 }
 
 
@@ -185,4 +184,95 @@ exports.dislikeUser = async (req, res) => {
 
     success = true;
     res.send({ success });
+}
+
+
+exports.getUsersWhoDisLikeMe = async (req, res) => {
+    const { id: currentUserId } = req.user;
+
+    const incomingDisLikes = await Encounter.findAll({
+        attributes: [
+            [
+                Sequelize.literal(`
+                TRIM(
+                    CONCAT(
+                        "initiator"."first_name", 
+                        CASE 
+                            WHEN "initiator->profile"."last_name_on" = TRUE AND "initiator"."last_name" IS NOT NULL 
+                            THEN CONCAT(' ', "initiator"."last_name") 
+                            ELSE '' 
+                        END,
+                        CASE 
+                            WHEN "initiator->profile"."other_names_on" = TRUE AND "initiator"."other_names" IS NOT NULL 
+                            THEN CONCAT(' ', "initiator"."other_names") 
+                            ELSE '' 
+                        END
+                    )
+                )
+            `),
+                'name'
+            ],
+            ['createdAt', 'liked_at'],
+            'seen',
+            [
+                Sequelize.literal(`
+                DATE_PART('year', AGE(CURRENT_DATE, "initiator"."date_of_birth"))::integer
+            `),
+                'age'
+            ],
+            [
+                Sequelize.literal(`
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'path', up."path",
+                            'position', up."position"
+                        ) ORDER BY up."position" ASC
+                    )
+                    FROM "UserPictures" up
+                    WHERE up."user_id" = "initiator"."id"
+                )
+            `),
+                'pictures'
+            ],
+            [
+                Sequelize.literal('"initiator"."id"'),
+                'user_id'
+            ],
+            [
+                Sequelize.literal('"initiator"."country"'),
+                'country'
+            ]
+        ],
+        where: {
+            recipient_id: currentUserId,
+            action: ENCOUNTER_ACTION.DISLIKE,
+        },
+        include: [
+            {
+                model: User,
+                as: 'initiator',
+                attributes: [],
+                include: [
+                    {
+                        model: UserProfile,
+                        as: 'profile',
+                        attributes: []
+                    }
+                ]
+            }
+        ],
+        order: [['createdAt', 'DESC']],
+        raw: true
+    });
+
+    const disLikes = incomingDisLikes.map(like => ({
+        ...like, liked_at: moment(like.liked_at, 'YYYYMMDD').fromNow()
+    }))
+
+    const unseen = disLikes.some(like => !like.seen);
+
+    let success = true;
+    res.send({ success, unseen, disLikes });
+
 }
