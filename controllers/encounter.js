@@ -274,3 +274,92 @@ exports.getUsersWhoDisLikeMe = async (req, res) => {
     let success = true;
     res.send({ success, unseen, disLikes });
 }
+
+exports.getUsersDisLikedByMe = async (req, res) => {
+    const { id: currentUserId } = req.user;
+
+    const incomingDisLikes = await Encounter.findAll({
+        attributes: [
+            [
+                Sequelize.literal(`
+                TRIM(
+                    CONCAT(
+                        "recipient"."first_name", 
+                        CASE 
+                            WHEN "recipient->profile"."last_name_on" = TRUE AND "recipient"."last_name" IS NOT NULL 
+                            THEN CONCAT(' ', "recipient"."last_name") 
+                            ELSE '' 
+                        END,
+                        CASE 
+                            WHEN "recipient->profile"."other_names_on" = TRUE AND "recipient"."other_names" IS NOT NULL 
+                            THEN CONCAT(' ', "recipient"."other_names") 
+                            ELSE '' 
+                        END
+                    )
+                )
+            `),
+                'name'
+            ],
+            ['updatedAt', 'disliked_at'],
+            ['seen_in_users_disliked_by_me', 'seen'],
+            [
+                Sequelize.literal(`
+                DATE_PART('year', AGE(CURRENT_DATE, "recipient"."date_of_birth"))::integer
+            `),
+                'age'
+            ],
+            [
+                Sequelize.literal(`
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'path', up."path",
+                            'position', up."position"
+                        ) ORDER BY up."position" ASC
+                    )
+                    FROM "UserPictures" up
+                    WHERE up."user_id" = "recipient"."id"
+                )
+            `),
+                'pictures'
+            ],
+            [
+                Sequelize.literal('"recipient"."id"'),
+                'user_id'
+            ],
+            [
+                Sequelize.literal('"recipient"."country"'),
+                'country'
+            ]
+        ],
+        where: {
+            recipient_id: currentUserId,
+            action: ENCOUNTER_ACTION.DISLIKE,
+        },
+        include: [
+            {
+                model: User,
+                as: 'recipient',
+                attributes: [],
+                include: [
+                    {
+                        model: UserProfile,
+                        as: 'profile',
+                        attributes: []
+                    }
+                ]
+            }
+        ],
+        order: [['updatedAt', 'DESC']],
+        raw: true
+    });
+
+    const disLikes = incomingDisLikes.map(dislike => ({
+        ...dislike, disliked_at: moment(dislike.disliked_at, 'YYYYMMDD').fromNow()
+    }))
+
+    const unseen = disLikes.some(like => !like.seen);
+
+    let success = true;
+    res.send({ success, unseen, disLikes });
+}
