@@ -233,7 +233,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/e99fa6c6-296a-4c40-bd1e-fba051d2b280.jpeg',
                 'http://localhost:4000/pictures/ea02336a-cd0a-4d35-ab1b-4b49f2451915.jpeg',
             ],
-            liked: '3 years'
+            liked: '3 years',
+            seen: 'true'
         },
         {
             name: 'Joshua Gato',
@@ -244,7 +245,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/9ed1df7f-f2c3-471c-9b22-8a063f3f2d19.jpeg',
                 'http://localhost:4000/pictures/d915a3e8-bd06-4cb9-8196-06e0cefc4392.jpeg'
             ],
-            liked: '1 year'
+            liked: '1 year',
+            seen: true,
         },
         {
             name: 'Joshua Gator',
@@ -256,7 +258,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/Image_Editor.png',
                 'http://localhost:4000/pictures/IMG_1129.JPG'
             ],
-            liked: '5 hours'
+            liked: '5 hours',
+            seen: false,
         },
         {
             name: 'Emma Korang',
@@ -268,7 +271,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/e99fa6c6-296a-4c40-bd1e-fba051d2b280.jpeg',
                 'http://localhost:4000/pictures/ea02336a-cd0a-4d35-ab1b-4b49f2451915.jpeg',
             ],
-            liked: '9 days'
+            liked: '9 days',
+            seen: false,
         },
         {
             name: 'Joshua Gato',
@@ -279,7 +283,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/9ed1df7f-f2c3-471c-9b22-8a063f3f2d19.jpeg',
                 'http://localhost:4000/pictures/d915a3e8-bd06-4cb9-8196-06e0cefc4392.jpeg'
             ],
-            liked: '10 months'
+            liked: '10 months',
+            seen: false,
         },
         {
             name: 'Joshua Gator',
@@ -291,7 +296,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/Image_Editor.png',
                 'http://localhost:4000/pictures/IMG_1129.JPG'
             ],
-            liked: '6 weeks'
+            liked: '6 weeks',
+            seen: false,
         },
         {
             name: 'Emma Korang',
@@ -303,7 +309,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/e99fa6c6-296a-4c40-bd1e-fba051d2b280.jpeg',
                 'http://localhost:4000/pictures/ea02336a-cd0a-4d35-ab1b-4b49f2451915.jpeg',
             ],
-            liked: '1 week'
+            liked: '1 week',
+            seen: false,
         },
         {
             name: 'Joshua Gato',
@@ -314,7 +321,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/9ed1df7f-f2c3-471c-9b22-8a063f3f2d19.jpeg',
                 'http://localhost:4000/pictures/d915a3e8-bd06-4cb9-8196-06e0cefc4392.jpeg'
             ],
-            liked: '10 days'
+            liked: '10 days',
+            seen: false,
         },
         {
             name: 'Joshua Gator',
@@ -326,7 +334,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/Image_Editor.png',
                 'http://localhost:4000/pictures/IMG_1129.JPG'
             ],
-            liked: '4 hours'
+            liked: '4 hours',
+            seen: false,
         },
         {
             name: 'Emma Korang',
@@ -338,7 +347,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/e99fa6c6-296a-4c40-bd1e-fba051d2b280.jpeg',
                 'http://localhost:4000/pictures/ea02336a-cd0a-4d35-ab1b-4b49f2451915.jpeg',
             ],
-            liked: '20 minutes'
+            liked: '20 minutes',
+            seen: false,
         },
         {
             name: 'Joshua Gato',
@@ -349,7 +359,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/9ed1df7f-f2c3-471c-9b22-8a063f3f2d19.jpeg',
                 'http://localhost:4000/pictures/d915a3e8-bd06-4cb9-8196-06e0cefc4392.jpeg'
             ],
-            liked: '1 day'
+            liked: '1 day',
+            seen: false,
         },
         {
             name: 'Joshua Gator',
@@ -361,7 +372,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
                 'http://localhost:4000/pictures/Image_Editor.png',
                 'http://localhost:4000/pictures/IMG_1129.JPG'
             ],
-            liked: '16 days'
+            liked: '16 days',
+            seen: false,
         }
         // 'http://localhost:4000/pictures/061fb23e-5da8-49b4-8ead-becdeda3978d.jpeg',
         // 'http://localhost:4000/pictures/8b86896a-9728-401e-b8d5-6e0485525326.jpeg',
@@ -370,5 +382,8 @@ exports.getPotentialMatchProfiles = (req, res) => {
         // 'http://localhost:4000/pictures/d915a3e8-bd06-4cb9-8196-06e0cefc4392.jpeg',
     ];
 
-    res.json({ sucess: true, userProfiles });
+    let sucess = true
+    let unseen = true;
+
+    res.json({ sucess, unseen, userProfiles, });
 }
