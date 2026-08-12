@@ -9,27 +9,13 @@ const UserProfile = require('../models/UserProfile');
 const UserPicture = require('../models/UserPicture');
 
 // User -> UserProfile Associations
-User.hasOne(UserProfile, {
-    foreignKey: 'user_id',
-    as: 'profile'
-});
-
-UserProfile.belongsTo(User, {
-    foreignKey: 'user_id',
-    as: 'user_profile'
-});
+User.hasOne(UserProfile, { foreignKey: 'user_id', as: 'profile' });
+UserProfile.belongsTo(User, { foreignKey: 'user_id', as: 'user_profile' });
 
 
 // User -> UserPicture Associations
-User.hasMany(UserPicture, {
-    foreignKey: 'user_id',
-    as: 'pictures'
-});
-
-UserPicture.belongsTo(User, {
-    foreignKey: 'user_id',
-    as: 'user_picture'
-});
+User.hasMany(UserPicture, { foreignKey: 'user_id', as: 'pictures' });
+UserPicture.belongsTo(User, { foreignKey: 'user_id', as: 'user_picture' });
 
 
 
