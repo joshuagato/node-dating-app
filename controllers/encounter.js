@@ -186,7 +186,6 @@ exports.dislikeUser = async (req, res) => {
     res.send({ success });
 }
 
-
 exports.getUsersWhoDisLikeMe = async (req, res) => {
     const { id: currentUserId } = req.user;
 
@@ -274,5 +273,4 @@ exports.getUsersWhoDisLikeMe = async (req, res) => {
 
     let success = true;
     res.send({ success, unseen, disLikes });
-
 }
