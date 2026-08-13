@@ -69,6 +69,7 @@ exports.getUsersWhoLikeMe = async (req, res) => {
     // 2. Fetch incoming likes excluding already reciprocated users
     const incomingLikes = await Encounter.findAll({
         attributes: [
+            'id',
             [
                 Sequelize.literal(`
                 TRIM(
@@ -191,6 +192,7 @@ exports.getUsersWhoDisLikeMe = async (req, res) => {
 
     const incomingDisLikes = await Encounter.findAll({
         attributes: [
+            'id',
             [
                 Sequelize.literal(`
                 TRIM(
@@ -280,6 +282,7 @@ exports.getUsersDisLikedByMe = async (req, res) => {
 
     const incomingDisLikes = await Encounter.findAll({
         attributes: [
+            'id',
             [
                 Sequelize.literal(`
                 TRIM(
