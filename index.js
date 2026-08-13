@@ -3,20 +3,15 @@ require('dotenv').config();
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
+const { log } = require('console-log-colors');
+
+const { connectPostgreSql } = require('./database/postgresql');
+const { apiRouter } = require('./routes');
 
 const app = express();
 const router = express.Router();
 
 app.use(cookieParser());
-
-const { log } = require('console-log-colors');
-
-const { connectPostgreSql } = require('./database/postgresql');
-
-const { authRouter } = require('./routes/auth');
-const { userRouter } = require('./routes/user');
-const { encounterRouter } = require('./routes/encounter');
-const { IsAuthenticated } = require('./middlewares/isAuthenticated');
 
 // Adds headers: Access-Control-Allow-Origin: *
 app.use(cors({
@@ -41,21 +36,13 @@ app.use(express.urlencoded({ extended: true }));
 // Making the pictures folder accessible
 app.use("/pictures", express.static(path.join(__dirname, "pictures")));
 
-app.use('/uploads/pictures', express.static(path.join(__dirname, 'uploads', 'pictures')));
+router.use('/uploads/pictures', express.static(path.join(__dirname, 'uploads', 'pictures')));
 
-// app.use(express.static(path.join(__dirname, "uploads")));
-
-app.get('/', (req, res) => {
-    res.send('Hello World!');
+router.get('/', (req, res) => {
+    res.send('Welcome to the API');
 });
 
-router.get('/login', (req, res) => {
-    res.json({ msg: 'Auth login page', obj: req.headers });
-});
-
-app.use('/auth', authRouter);
-app.use('/user', userRouter);
-app.use('/encounter', encounterRouter);
+router.use('/api', apiRouter);
 
 const port = process.env.PORT || 4001;
 
