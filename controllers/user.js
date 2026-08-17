@@ -224,6 +224,7 @@ exports.getPotentialMatchProfiles = (req, res) => {
 
     const userProfiles = [
         {
+            id: '0a31f97a-99ce-457e-9ac4-c9a01955bcbd',
             name: 'Emma Korang',
             age: 20,
             distanceFrom: 19,
@@ -237,6 +238,7 @@ exports.getPotentialMatchProfiles = (req, res) => {
             seen: true,
         },
         {
+            id: '39239e36-4b8f-45ad-8dc9-2cad0fcd9a31',
             name: 'Joshua Gato',
             age: 30,
             distanceFrom: 9,
