@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
-const { Sequelize, Op } = require('sequelize');
+const { Sequelize, Op, where } = require('sequelize');
 
 const { generateEmailVerificationCode, generatePasswordResetVerificationCode, generateTokenForUserId,
     generateCookiesForToken, generateCookiesForCurrentUserId, organizeErrors, deleteUserFields,
@@ -85,7 +85,7 @@ exports.sendMessage = async (req, res) => {
     }
 
     const success = true;
-    res.status(200).json({ success, message });
+    res.json({ success, message });
 }
 
 exports.getChats = async (req, res) => {
@@ -246,7 +246,7 @@ exports.getChats = async (req, res) => {
     });
 
     const success = true;
-    res.status(200).json({ success, chats });
+    res.json({ success, chats });
 }
 
 exports.getChatMessages = async (req, res) => {
@@ -256,5 +256,24 @@ exports.getChatMessages = async (req, res) => {
     const messages = await Message.findAll({ where: { chat_id } });
 
     const success = true;
-    res.status(200).json({ success, messages });
+    res.json({ success, messages });
+}
+
+exports.markMessageAsSeen = async (req, res) => {
+    const { message_id: id } = req.params;
+    const read_at = new Date();
+
+    // const message = await Message.update({ where: { id }, values: { read_at } });
+    const message = await Message.findByPk(id);
+    const { sender_id } = message;
+    message.read_at = read_at;
+    message.save();
+
+    if (onlineUsers.has(sender_id)) {
+        const io = req.app.get('io');
+        io.to(`user_${sender_id}`).emit('message_read', { message });
+    }
+
+    const success = true;
+    res.json({ success });
 }
