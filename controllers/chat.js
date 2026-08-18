@@ -43,7 +43,6 @@ exports.sendMessage = async (req, res) => {
             seconder_id: { [Op.or]: [sender_id, recipient_id] }
         }
     });
-    console.log({ match });
 
     const existingChat = await Chat.findOne({
         where: {
@@ -80,9 +79,10 @@ exports.sendMessage = async (req, res) => {
 
     // const message = { id: parseInt(messages_length) + 1, sender_id, recipient_id, sent_at, delivered_at, read_at: null, content };
 
-    const io = req.app.get('io');
-
-    io.to(`user_${recipient_id}`).emit('new_message', { message });
+    if (onlineUsers.has(recipient_id)) {
+        const io = req.app.get('io');
+        io.to(`user_${recipient_id}`).emit('new_message', { message });
+    }
 
     const success = true;
     res.status(200).json({ success, message });
