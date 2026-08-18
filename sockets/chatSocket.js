@@ -1,16 +1,46 @@
+const Message = require('../models/Message');
+// const { markMessageAsDelivered } = require('../controllers/chat');
+
 const onlineUsers = new Map();
+let last_recipient_id = '';
+
+const markMessageAsDelivered = async (recipient_id, io) => {
+    if (!recipient_id) return;
+    if (recipient_id === last_recipient_id) return;
+
+    const delivered_at = null;
+    const messages = await Message.findAll({ where: { recipient_id, delivered_at } });
+
+    if (messages.length > 0) {
+        messages.forEach(message => {
+            message.delivered_at = new Date();
+            message.save();
+            const { sender_id } = message;
+
+            if (onlineUsers.has(sender_id))
+                io.to(`user_${sender_id}`).emit('message_delivered', { message });
+        });
+    }
+
+    setTimeout(() => {
+        last_recipient_id = '';
+    }, 1000);
+}
 
 exports.initChatSocket = function (io) {
     io.on('connection', (socket) => {
         const userId = socket.handshake.query.userId;
-        // console.log({ userId })
 
-        if (userId) {
+        // if (userId) {
+        if (userId && userId !== 'null' && userId !== 'undefined') {
             onlineUsers.set(userId, socket.id);
             socket.join(`user_${userId}`);
-            console.log(`user_${userId}`);
+
             // Broadcast online status to active peers
             io.emit('user_status_change', { userId, isOnline: true });
+
+            markMessageAsDelivered(userId, io);
+            console.log({ userId })
         }
 
         socket.on('new_message', ({ message }) => {
