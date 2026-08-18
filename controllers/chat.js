@@ -29,8 +29,8 @@ exports.sendMessage = async (req, res) => {
     const errors = organizeErrors(result.array());
     if (!result.isEmpty()) return res.send({ errors });
 
-    // const { message: content, sender_id, recipient_id, messages_length } = matchedData(req);
-    const { message: content, sender_id, recipient_id, messages_length } = req.body;
+    // const { message: content, sender_id, recipient_id } = matchedData(req);
+    const { message: content, sender_id, recipient_id } = req.body;
 
     // const user = req.user;
     // const { id: user_id } = user;
@@ -247,4 +247,14 @@ exports.getChats = async (req, res) => {
 
     const success = true;
     res.status(200).json({ success, chats });
+}
+
+exports.getChatMessages = async (req, res) => {
+    // const { id: user_id } = req.user;
+    const { chat_id } = req.params;
+
+    const messages = await Message.findAll({ where: { chat_id } });
+
+    const success = true;
+    res.status(200).json({ success, messages });
 }
