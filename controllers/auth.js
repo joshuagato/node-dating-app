@@ -78,7 +78,7 @@ exports.login = async (req, res) => {
     const basic_profile_setup = user.basic_profile_setup;
     const email_verified = user.email_verified;
     const advanced_profile_setup = user.advanced_profile_setup;
-    res.status(200).json({ success, message, token, email_verified, basic_profile_setup, advanced_profile_setup });
+    res.status(200).json({ success, message, user_id, email_verified, basic_profile_setup, advanced_profile_setup });
 }
 
 exports.signup = async (req, res) => {
