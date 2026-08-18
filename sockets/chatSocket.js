@@ -40,7 +40,6 @@ exports.initChatSocket = function (io) {
             io.emit('user_status_change', { userId, isOnline: true });
 
             markMessageAsDelivered(userId, io);
-            console.log({ userId })
         }
 
         socket.on('new_message', ({ message }) => {
@@ -57,10 +56,6 @@ exports.initChatSocket = function (io) {
 
         socket.on('sender_typing_stop', ({ recipient_id }) => {
             io.to(`user_${recipient_id}`).emit('partner_typing', { recipient_id, isTyping: false });
-        });
-
-        socket.on('show_sender_message_read', ({ sender_id, new_array }) => {
-            io.to(`user_${sender_id}`).emit('message_read', { sender_id, new_array });
         });
 
         // 1. Join Conversation Room
