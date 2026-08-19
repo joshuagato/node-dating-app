@@ -50,12 +50,12 @@ exports.initChatSocket = function (io) {
             console.log('message from send_message: ', message);
         });
 
-        socket.on('sender_typing_start', ({ recipient_id }) => {
-            io.to(`user_${recipient_id}`).emit('partner_typing', { recipient_id, isTyping: true });
+        socket.on('sender_typing_start', ({ recipient_id, sender_id }) => {
+            io.to(`user_${recipient_id}`).emit('partner_typing', { recipient_id, sender_id, isTyping: true });
         });
 
-        socket.on('sender_typing_stop', ({ recipient_id }) => {
-            io.to(`user_${recipient_id}`).emit('partner_typing', { recipient_id, isTyping: false });
+        socket.on('sender_typing_stop', ({ recipient_id, sender_id }) => {
+            io.to(`user_${recipient_id}`).emit('partner_typing', { recipient_id, sender_id, isTyping: false });
         });
 
         // 1. Join Conversation Room
