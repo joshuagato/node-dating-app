@@ -85,7 +85,7 @@ exports.sendMessage = async (req, res) => {
     }
 
     const success = true;
-    res.json({ success, message });
+    res.send({ success, message });
 }
 
 exports.getChats = async (req, res) => {
@@ -246,26 +246,30 @@ exports.getChats = async (req, res) => {
     });
 
     const success = true;
-    res.json({ success, chats });
+    res.send({ success, chats });
 }
 
 exports.getChatMessages = async (req, res) => {
     // const { id: user_id } = req.user;
     const { chat_id } = req.params;
 
-    const messages = await Message.findAll({ where: { chat_id } });
+    const messages = await Message.findAll({ where: { chat_id }, order: [['createdAt', 'ASC']] });
 
     const success = true;
-    res.json({ success, messages });
+    res.send({ success, messages });
 }
 
 exports.markMessageAsSeen = async (req, res) => {
     const { message_id: id } = req.params;
-    const read_at = new Date();
+    let read_at = null;
+    let success = false;
 
-    // const message = await Message.update({ where: { id }, values: { read_at } });
-    const message = await Message.findByPk(id);
+    // const [updatedRowsCount, updatedRows] = await Message.update({ read_at }, { where: { id } });
+    const message = await Message.findOne({ where: { id, read_at } });
+    if (!message) return res.send({ success });
+
     const { sender_id } = message;
+    read_at = new Date();
     message.read_at = read_at;
     message.save();
 
@@ -274,6 +278,6 @@ exports.markMessageAsSeen = async (req, res) => {
         io.to(`user_${sender_id}`).emit('message_read', { message });
     }
 
-    const success = true;
-    res.json({ success });
+    success = true;
+    res.send({ success });
 }
