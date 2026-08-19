@@ -27,7 +27,7 @@ const Message = postgresSequelize.define('Message',
         // forwarded_from_id: {
         //     type: DataTypes.UUID, allowNull: true, references: { model: 'Messages', key: 'id' }
         // },
-        sent_at: { type: DataTypes.DATE, allowNull: true },
+        sent_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
         delivered_at: { type: DataTypes.DATE, allowNull: true },
         read_at: { type: DataTypes.DATE, allowNull: true },
         // attachments: { type: DataTypes.JSONB, defaultValue: [], allowNull: true },
