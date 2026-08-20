@@ -78,6 +78,15 @@ exports.updateUserPasswordResetConfirmationAndExpiration = async (user, confirma
     await user.save();
 }
 
+exports.calculateAge = (dob) => {
+    const birthDate = new Date(dob);
+    const age = new Date().getFullYear() - birthDate.getFullYear();
+    const monthDiff = new Date().getMonth() - birthDate.getMonth();
+    const dayDiff = new Date().getDate() - birthDate.getDate();
+    return monthDiff < 0 || (monthDiff === 0 && dayDiff < 0) ? age - 1 : age;
+};
+
+
 exports.setUserEmailVerificationRequest = async data => await EmailVerificationRequest.create(data);
 
 exports.setUserPasswordResetRequest = async data => await PasswordResetRequest.create(data);
