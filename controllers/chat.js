@@ -24,6 +24,9 @@ Chat.belongsTo(User, { as: 'chat_seconder', foreignKey: 'seconder_id' });
 Chat.belongsTo(Message, { as: 'last_message', foreignKey: 'last_message_id' });
 // Chat.belongsTo(User, { as: 'chat_other', foreignKey: 'initiator_id' });
 
+Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'Chat' });
+Chat.hasMany(Message, { foreignKey: 'chat_id', as: 'Messages' });
+
 exports.sendMessage = async (req, res) => {
     const result = validationResult(req);
     const errors = organizeErrors(result.array());
@@ -271,16 +274,46 @@ exports.markMessageAsSeen = async (req, res) => {
     const message = await Message.findOne({ where: { id, read_at } });
     if (!message) return res.send({ success });
 
-    const { sender_id } = message;
+    const { sender_id, recipient_id } = message;
     read_at = new Date();
     message.read_at = read_at;
     message.save();
 
-    if (onlineUsers.has(sender_id)) {
-        const io = req.app.get('io');
+    const io = req.app.get('io');
+    if (onlineUsers.has(sender_id))
         io.to(`user_${sender_id}`).emit('message_read', { message });
-    }
+
+    if (onlineUsers.has(recipient_id))
+        io.to(`user_${recipient_id}`).emit('message_read', { recipient_id });
 
     success = true;
     res.send({ success });
+}
+
+
+exports.getNewChatsCount = async (req, res) => {
+    const userId = req.user.id;
+
+    const count = await Chat.count({
+        distinct: true,
+        col: 'id',
+        include: [
+            {
+                model: Message,
+                as: 'Messages',
+                attributes: [],
+                where: {
+                    recipient_id: userId,
+                    read_at: null,
+                    // is_deleted: false,
+                    // [Op.not]: Sequelize.literal(`:userId = ANY("Messages"."deleted_for")`)
+                },
+                required: true // INNER JOIN
+            }
+        ],
+        replacements: { userId }
+    });
+
+    const success = true;
+    res.send({ success, count });
 }
