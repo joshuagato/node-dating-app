@@ -366,3 +366,19 @@ exports.getUsersDisLikedByMe = async (req, res) => {
     let success = true;
     res.send({ success, unseen, disLikes });
 }
+
+exports.getNewLikesCount = async (req, res) => {
+    const userId = req.user.id;
+
+    const count = await Encounter.count({
+        where: {
+            recipient_id: userId,
+            seen_in_users_who_like_me: false,
+            seen_in_users_who_like_me_at: null,
+            action: ENCOUNTER_ACTION.LIKE
+        }
+    });
+
+    const success = true;
+    res.send({ success, count });
+}
