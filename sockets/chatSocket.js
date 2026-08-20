@@ -1,12 +1,16 @@
 const Message = require('../models/Message');
+const User = require('../models/User');
 // const { markMessageAsDelivered } = require('../controllers/chat');
 
 const onlineUsers = new Map();
 let last_recipient_id = '';
+let last_user_id = '';
 
 const markMessageAsDelivered = async (recipient_id, io) => {
     if (!recipient_id) return;
-    if (recipient_id === last_recipient_id) return;
+    if (last_recipient_id.toString() === recipient_id.toString()) return;
+
+    last_user_id = recipient_id;
 
     const delivered_at = null;
     const messages = await Message.findAll({ where: { recipient_id, delivered_at } });
@@ -27,19 +31,43 @@ const markMessageAsDelivered = async (recipient_id, io) => {
     }, 1000);
 }
 
+const changeUserOnlineStatus = async ({ user_id, is_online }, io) => {
+    if (user_id === last_user_id) return;
+    let last_seen = null;
+
+    last_user_id = user_id;
+    // Broadcast online status to active peers
+    if (is_online) {
+        io.emit('user_status_change', { user_id, is_online });
+        await User.update({ is_online, last_seen }, { where: { id: user_id } });
+    }
+    else {
+        if (!onlineUsers.has(user_id)) {
+            last_seen = new Date();
+            io.emit('user_status_change', { user_id, is_online, last_seen });
+            await User.update({ is_online, last_seen }, { where: { id: user_id } });
+        }
+    }
+
+    setTimeout(() => {
+        last_user_id = '';
+    }, 1000);
+}
+
 exports.initChatSocket = function (io) {
-    io.on('connection', (socket) => {
+    io.on('connection', async (socket) => {
         const userId = socket.handshake.query.userId;
+        const user_id = socket.handshake.query.userId;
 
         // if (userId) {
         if (userId && userId !== 'null' && userId !== 'undefined') {
             onlineUsers.set(userId, socket.id);
             socket.join(`user_${userId}`);
 
-            // Broadcast online status to active peers
-            io.emit('user_status_change', { userId, isOnline: true });
+            await changeUserOnlineStatus({ user_id, is_online: true }, io);
 
-            markMessageAsDelivered(userId, io);
+            await markMessageAsDelivered(userId, io);
+            console.log('Trig: ', { userId, user_id });
         }
 
         socket.on('new_message', ({ message }) => {
@@ -112,9 +140,9 @@ exports.initChatSocket = function (io) {
         });
 
         socket.on('disconnect', () => {
-            if (userId) {
-                onlineUsers.delete(userId);
-                io.emit('user_status_change', { userId, isOnline: false });
+            if (user_id && user_id !== 'null' && user_id !== 'undefined') {
+                onlineUsers.delete(user_id);
+                changeUserOnlineStatus({ user_id, is_online: false }, io);
             }
         });
     });
