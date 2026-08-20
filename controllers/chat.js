@@ -5,7 +5,7 @@ const { Sequelize, Op, where } = require('sequelize');
 const { generateEmailVerificationCode, generatePasswordResetVerificationCode, generateTokenForUserId,
     generateCookiesForToken, generateCookiesForCurrentUserId, organizeErrors, deleteUserFields,
     checkForVerificationCodeExpiry, checkForChangedPasswordInThePast, setUserEmailVerificationRequest,
-    setUserPasswordResetRequest
+    setUserPasswordResetRequest, calculateAge
 } = require('../utils/functions');
 const { TWENTY_FOUR_HOURS_FROM_NOW, TWENTY_FOUR_HOURS_BEFORE_NOW, CHAT_STARTER } = require('../utils/constants');
 const { onlineUsers } = require('../sockets/chatSocket');
@@ -120,7 +120,7 @@ exports.getChats = async (req, res) => {
             {
                 model: User,
                 as: 'chat_initiator',
-                attributes: ['id', 'first_name', 'last_name', 'other_names'],
+                attributes: ['id', 'first_name', 'last_name', 'other_names', 'date_of_birth', 'is_online', 'last_seen'],
                 include: [
                     {
                         model: UserProfile,
@@ -140,7 +140,7 @@ exports.getChats = async (req, res) => {
             {
                 model: User,
                 as: 'chat_seconder',
-                attributes: ['id', 'first_name', 'last_name', 'other_names'],
+                attributes: ['id', 'first_name', 'last_name', 'other_names', 'date_of_birth', 'is_online', 'last_seen'],
                 include: [
                     {
                         model: UserProfile,
@@ -223,7 +223,10 @@ exports.getChats = async (req, res) => {
             partner: {
                 id: isInitiator ? chatJson.seconder_id : chatJson.initiator_id,
                 name: formatName(partnerUser),
-                picture: getPicture(partnerUser)
+                picture: getPicture(partnerUser),
+                is_online: partnerUser.is_online,
+                last_seen: partnerUser.last_seen,
+                age: calculateAge(partnerUser.date_of_birth)
             },
             // Current user information
             myself: {
