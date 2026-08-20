@@ -23,6 +23,8 @@ const User = postgresSequelize.define('User',
         basic_profile_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
         advanced_profile_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
         final_profile_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
+        is_online: { type: DataTypes.BOOLEAN, defaultValue: false },
+        last_seen: { type: DataTypes.DATE, allowNull: true },
     },
 );
 
