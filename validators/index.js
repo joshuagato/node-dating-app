@@ -3,6 +3,8 @@ const { capitalize } = require('../utils/functions');
 
 const validateEmail = () => body('email').trim().notEmpty().withMessage('Email cannot be empty').isEmail().withMessage('Enter a valid email address');
 
+const validateChatMessage = () => body('message').trim().notEmpty().withMessage('Message cannot be empty');
+
 const validatePictures = () => body('imagesBody').trim().notEmpty().withMessage('You must upload at least 2 Pictures');
 
 const validateName = fieldName => body(fieldName).trim().notEmpty().withMessage(`${capitalize(fieldName)} cannot be empty`);
@@ -10,6 +12,8 @@ const validateName = fieldName => body(fieldName).trim().notEmpty().withMessage(
 const validateLocation = fieldName => body(fieldName).trim().notEmpty().withMessage(`${capitalize(fieldName)} cannot be empty`);
 
 const validateCoordinates = fieldName => body(fieldName).isDecimal().withMessage(`${capitalize(fieldName)} cannot be empty`);
+
+const validateSelfie = () => body('verifiedSelfie').trim().notEmpty().withMessage('Selfie image is required.');
 
 const validateCode = (fieldName, length) => body(fieldName).trim().notEmpty().withMessage('Code cannot be empty').isLength({ min: length, max: length }).withMessage(`Code must be at least ${length} characters long`);
 
@@ -22,5 +26,5 @@ const validateConfirmPassword = () => body('passwordConfirmation').trim().notEmp
 
 module.exports = {
     validateEmail, validatePassword, validateConfirmPassword, validateName, validateCode,
-    validateLocation, validateCoordinates
+    validateLocation, validateCoordinates, validateChatMessage, validateSelfie
 };
