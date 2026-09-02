@@ -5,9 +5,10 @@ const { MESSAGE_TYPE, MESSAGE_STATUS, MESSAGE_DIRECTION, CALL_TYPE } = require('
 const Message = postgresSequelize.define('Message',
     {
         id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-        match_id: {
-            type: DataTypes.UUID, allowNull: false, onDelete: 'CASCADE', references: { model: 'Matches', key: 'id' }
-        },
+        // match_id: {
+        //     type: DataTypes.UUID, allowNull: true, onDelete: 'CASCADE', references: { model: 'Matches', key: 'id' },
+        //     defaultValue: null
+        // },
         chat_id: {
             type: DataTypes.UUID, allowNull: false, onDelete: 'CASCADE', references: { model: 'Chats', key: 'id' }
         },
