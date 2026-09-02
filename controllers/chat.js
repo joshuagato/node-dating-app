@@ -64,12 +64,14 @@ exports.sendMessage = async (req, res) => {
     }
 
     const chat_id = existingChat ? existingChat.id : chat.id;
-    const match_id = match ? match.id : null;
+    // const match_id = match ? match.id : null;
     const sent_at = new Date();
     const delivered_at = onlineUsers.has(recipient_id) ? new Date() : null;
 
+    // console.log({ chat_id, sender_id, recipient_id, content, sent_at, delivered_at });
+
     const message = await Message.create({
-        match_id, chat_id, sender_id, recipient_id, content, sent_at, delivered_at
+        chat_id, sender_id, recipient_id, content, sent_at, delivered_at
     });
 
     if (existingChat) {
