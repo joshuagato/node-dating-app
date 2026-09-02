@@ -109,7 +109,7 @@ exports.setupAdvancedProfile = async (req, res) => {
         country,
         latitude,
         longitude,
-        final_profile_setup: true
+        advanced_profile_setup: true
     });
 
     message = 'Location and Image saved';
