@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
 const { Sequelize, Op } = require('sequelize');
@@ -7,6 +9,7 @@ const { organizeErrors, deleteUserFields, getRawFile } = require('../utils/funct
 const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
 const UserPicture = require('../models/UserPicture');
+const VerificationPicture = require('../models/VerificationPicture');
 
 // User -> UserProfile Associations
 User.hasOne(UserProfile, { foreignKey: 'user_id', as: 'profile' });
@@ -60,6 +63,65 @@ exports.setupAdvancedProfile = async (req, res) => {
     const errors = organizeErrors(result.array());
     if (!result.isEmpty()) return res.send({ errors });
 
+    const { id: user_id } = req.user;
+    const { verifiedSelfie, city, country, latitude, longitude } = req.body;
+
+    let success = false;
+    let message = 'User not found.';
+
+    const user = await User.findByPk(user_id);
+    if (!user) return res.json({ success, message });
+
+    // 1. Process & Save the Base64 Image
+    let savedImagePath = null;
+
+    if (verifiedSelfie) {
+        // Ensure target upload directory exists
+        const uploadDir = path.join(__dirname, '../uploads/verification-pictures');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        // Extract binary data from Base64 Data URI
+        const base64Data = verifiedSelfie.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        // Generate a unique filename
+        const fileName = `selfie-${user_id}-${Date.now()}.jpg`;
+        const absolutePath = path.join(uploadDir, fileName);
+
+        // Write image to server disk
+        await fs.promises.writeFile(absolutePath, buffer);
+
+        // Relative web path for storage in DB
+        savedImagePath = `/uploads/verification-pictures/${fileName}`;
+
+        // Create record in VerificationPicture table
+        await VerificationPicture.create({
+            user_id: user.id,
+            path: savedImagePath
+        });
+    }
+
+    // 2. Update User Record
+    await user.update({
+        city,
+        country,
+        latitude,
+        longitude,
+        final_profile_setup: true
+    });
+
+    message = 'Location and Image saved';
+    success = true;
+    res.send({ success, message });
+}
+
+exports.setupFinalProfile = async (req, res) => {
+    const result = validationResult(req);
+    const errors = organizeErrors(result.array());
+    if (!result.isEmpty()) return res.send({ errors });
+
     message = 'No picture uploaded.';
     success = false;
     const { id: user_id } = req.user;
@@ -94,27 +156,6 @@ exports.setupAdvancedProfile = async (req, res) => {
     res.send({ success, message });
 }
 
-exports.setupFinalProfile = async (req, res) => {
-    const result = validationResult(req);
-    const errors = organizeErrors(result.array());
-    if (!result.isEmpty()) return res.send({ errors });
-
-    const { id: user_id } = req.user;
-
-    let success = false;
-    let message = 'User not found.';
-
-    const user = await User.findByPk(user_id);
-    if (!user) return res.json({ success, message });
-
-    req.body.final_profile_setup = true;
-    await user.update(req.body);
-
-    message = 'Location saved';
-    success = true;
-    res.send({ success, message });
-}
-
 exports.getEncountersProfiles = async (req, res) => {
     const currentUser = req.user;
     // let nearbyUsers = [];
@@ -124,7 +165,7 @@ exports.getEncountersProfiles = async (req, res) => {
 
     const { max_distance = 11, limit = 20, offset = 0 } = req.query;
 
-    const users = await User.findAll({
+    const unfilteredUsers = await User.findAll({
         attributes: [
             'id',
             [
@@ -166,7 +207,9 @@ exports.getEncountersProfiles = async (req, res) => {
                     )
                 `),
                 'distance_from'
-            ]
+            ],
+            'is_online',
+            'last_seen'
         ],
         include: [
             {
@@ -185,7 +228,7 @@ exports.getEncountersProfiles = async (req, res) => {
             }
         ],
         where: {
-            id: { [Sequelize.Op.ne]: currentUserId },
+            // id: { [Sequelize.Op.ne]: currentUserId },
             latitude: { [Sequelize.Op.ne]: null },
             longitude: { [Sequelize.Op.ne]: null },
             [Sequelize.Op.and]: Sequelize.literal(`
@@ -207,8 +250,21 @@ exports.getEncountersProfiles = async (req, res) => {
         offset: parseInt(offset)
     });
 
+    console.log({ unfilteredUsers })
+
+    const myself = {};
+    unfilteredUsers.forEach(user => {
+        if (user.id.toString() === currentUserId.toString()) {
+            myself.id = user.dataValues.id;
+            myself.name = user.dataValues.name;
+            myself.picture = user.dataValues.pictures[0].path;
+        }
+    })
+
+    const users = unfilteredUsers.filter(user => user.id.toString() !== currentUserId.toString());
+
     let success = true;
-    res.send({ success, users });
+    res.send({ success, myself, users });
 }
 
 exports.getPotentialMatchProfiles = (req, res) => {
