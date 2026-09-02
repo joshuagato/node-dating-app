@@ -4,11 +4,13 @@ const path = require('path');
 const multer = require('multer');
 
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
-const { getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
+const {
+    getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
     setupFinalProfile, getEncountersProfiles
 } = require('../controllers/user');
-const { validateName, validatePassword, validateConfirmPassword, validateLocation,
-    validateCoordinates
+const {
+    validateName, validatePassword, validateConfirmPassword, validateLocation,
+    validateCoordinates, validateSelfie
 } = require('../validators');
 const { upload } = require('../utils/utils');
 
@@ -19,11 +21,12 @@ router.put('/basic-profile',
     validateName('first_name'), validateName('last_name'),
     IsAuthenticated, setupBasicProfile);
 
-router.put('/advanced-profile', IsAuthenticated, upload.array('images'), setupAdvancedProfile);
-
-router.put('/final-profile',
+router.put('/advanced-profile', IsAuthenticated,
     validateLocation('country'), validateLocation('city'),
-    validateCoordinates('longitude'), validateCoordinates('latitude'),
+    validateCoordinates('longitude'), validateCoordinates('latitude'), validateSelfie(),
+    setupAdvancedProfile);
+
+router.put('/final-profile', upload.array('images'),
     IsAuthenticated, setupFinalProfile);
 
 router.get('/get-encounters-profiles', IsAuthenticated, getEncountersProfiles);
