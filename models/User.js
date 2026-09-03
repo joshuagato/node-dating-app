@@ -2,7 +2,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 const { postgresSequelize } = require('../database/postgresql');
 // const sequelize = new Sequelize('sqlite::memory:');
 
-const { GENDER } = require('../utils/constants');
+const { GENDER, SIGNUP_CHANNEL } = require('../utils/constants');
 
 const User = postgresSequelize.define('User',
     {
@@ -18,7 +18,9 @@ const User = postgresSequelize.define('User',
         latitude: { type: DataTypes.DOUBLE },
         country: { type: DataTypes.STRING },
         city: { type: DataTypes.STRING },
-        password: { type: DataTypes.STRING, allowNull: false },
+        password: { type: DataTypes.STRING, allowNull: true },
+        master_password: { type: DataTypes.STRING, allowNull: true },
+        signup_channel: { type: DataTypes.ENUM, values: Object.values(SIGNUP_CHANNEL), defaultValue: SIGNUP_CHANNEL.DIRECT },
         email_verified: { type: DataTypes.BOOLEAN, defaultValue: false },
         basic_profile_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
         advanced_profile_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
