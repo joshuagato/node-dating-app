@@ -463,7 +463,7 @@ exports.getVerificationSelfie = async (req, res) => {
 
         // Read the file and convert to base64
         const filePath = path.join(__dirname, '..', verificationPicture.path);
-        console.log({ filePath })
+        // console.log({ filePath })
         const imageBuffer = await fs.promises.readFile(filePath);
         const base64Image = imageBuffer.toString('base64');
 
