@@ -6,9 +6,9 @@ const { sendEmailVerificationMail } = require('../mailer/senders/email-verificat
 const { generateEmailVerificationCode, generatePasswordResetVerificationCode, generateTokenForUserId,
     generateCookiesForToken, generateCookiesForCurrentUserId, organizeErrors, deleteUserFields,
     checkForVerificationCodeExpiry, checkForChangedPasswordInThePast, setUserEmailVerificationRequest,
-    setUserPasswordResetRequest
+    setUserPasswordResetRequest, hashPassword
 } = require('../utils/functions');
-const { TWENTY_FOUR_HOURS_FROM_NOW, TWENTY_FOUR_HOURS_BEFORE_NOW } = require('../utils/constants');
+const { TWENTY_FOUR_HOURS_FROM_NOW, TWENTY_FOUR_HOURS_BEFORE_NOW, SIGNUP_CHANNEL } = require('../utils/constants');
 
 const User = require('../models/User');
 const EmailVerificationRequest = require('../models/EmailVerificationRequest');
@@ -16,6 +16,110 @@ const EmailVerificationAttempt = require('../models/EmailVerificationAttempt');
 const PasswordResetRequest = require('../models/PasswordResetRequest');
 const PasswordResetVerificationAttempt = require('../models/PasswordResetVerificationAttempt');
 const PasswordReset = require('../models/PasswordReset');
+
+const { OAuth2Client } = require('google-auth-library');
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const masterPassword = process.env.MASTER_PASSWORD;
+
+exports.googleAuth = async (req, res) => {
+    try {
+        const { idToken } = req.body;
+
+        if (!idToken) {
+            return res.status(400).json({ success: false, message: 'Google ID Token is required.' });
+        }
+
+        // 1. Verify Google ID Token
+        const ticket = await client.verifyIdToken({
+            idToken,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+
+        const payload = ticket.getPayload();
+
+        // return res.send({ payload })
+
+        // Extract fields provided by Google's OAuth ID Token standard
+        const {
+            email_verified, email, given_name: googleFirstName, family_name: googleLastName,
+            // sub: googleId
+        } = payload;
+
+        if (!email) {
+            return res.send({ success: false, message: 'Google account missing email address.' });
+        }
+
+        // Fallbacks if Google payload leaves given_name/family_name blank
+        const first_name = googleFirstName || payload.name?.split(' ')[0] || '';
+        const last_name = googleLastName || payload.name?.split(' ').slice(1).join(' ') || '';
+
+        // 2. Find or create user in database
+        let [user, created] = await User.findOrCreate({
+            where: { email },
+            defaults: {
+                email, first_name, last_name, email_verified,
+                // google_id: googleId,
+            }
+        });
+
+        // 3. Update account metadata if existing non-Google user authenticates
+        if (!created) {
+            let updated = false;
+
+            if (!user.email_verified) {
+                user.email_verified = true;
+                updated = true;
+            }
+
+            // Sync names if they were previously unpopulated
+            if (!user.first_name && first_name) {
+                user.first_name = first_name;
+                updated = true;
+            }
+            if (!user.last_name && last_name) {
+                user.last_name = last_name;
+                updated = true;
+            }
+
+            if (updated) {
+                await user.save();
+            }
+        }
+
+        if (created) {
+            user.signup_channel = SIGNUP_CHANNEL.GOOGLE;
+            user.master_password = await hashPassword(masterPassword);
+            await user.save();
+        }
+
+        // 4. Issue session token & cookies (Matching standard login workflow)
+        const token = generateTokenForUserId(user.id);
+        generateCookiesForToken(res, token);
+        generateCookiesForCurrentUserId(res, user.id);
+
+        // 5. Return standardized payload expected by handleAuthSuccess
+        return res.send({
+            success: true,
+            message: created ? 'Account created via Google successfully' : 'Logged in successfully with Google',
+            token,
+            user_id: user.id,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            email: user.email,
+            email_verified: user.email_verified,
+            basic_profile_setup: user.basic_profile_setup,
+            advanced_profile_setup: user.advanced_profile_setup,
+            final_profile_setup: user.final_profile_setup,
+        });
+
+    } catch (error) {
+        console.error('Google Auth Error:', error);
+        return res.status(401).json({
+            success: false,
+            message: 'Google authentication failed. Invalid token.'
+        });
+    }
+};
 
 exports.profile = async (req, res) => {
     const message = 'Profile not found.';
@@ -41,9 +145,11 @@ exports.login = async (req, res) => {
 
     const { id: user_id } = user;
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    const passwordMatch = await bcrypt.compare(password, user.password || '');
 
-    if (!passwordMatch) {
+    const masterPasswordMatch = await bcrypt.compare(password, user.master_password || '');
+
+    if (!passwordMatch && !masterPasswordMatch) {
         userPasswordResets = await PasswordReset.findAll({ where: { user_id }, order: [['createdAt', 'ASC']] });
 
         const response = await checkForChangedPasswordInThePast(userPasswordResets, password);
@@ -78,7 +184,11 @@ exports.login = async (req, res) => {
     const basic_profile_setup = user.basic_profile_setup;
     const email_verified = user.email_verified;
     const advanced_profile_setup = user.advanced_profile_setup;
-    res.status(200).json({ success, message, user_id, email_verified, basic_profile_setup, advanced_profile_setup });
+    const final_profile_setup = user.final_profile_setup;
+
+    res.status(200).json({
+        success, message, user_id, email_verified, basic_profile_setup, advanced_profile_setup, final_profile_setup
+    });
 }
 
 exports.signup = async (req, res) => {
@@ -94,9 +204,9 @@ exports.signup = async (req, res) => {
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) return res.send({ success, message });
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    req.body.password = hashedPassword;
+    req.body.password = await hashPassword(password);
+
+    req.body.master_password = await hashPassword(masterPassword);
 
     const user = await User.create(req.body);
 
