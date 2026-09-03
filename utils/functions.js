@@ -7,6 +7,13 @@ const { TWENTY_FOUR_HOURS_FROM_NOW } = require('./constants');
 const EmailVerificationRequest = require('../models/EmailVerificationRequest');
 const PasswordResetRequest = require('../models/PasswordResetRequest');
 
+
+exports.hashPassword = async password => {
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    return hashedPassword;
+}
+
 exports.generateEmailVerificationCode = digits => {
     const code = crypto.randomInt(0, 10000);
     return code.toString().padStart(digits, '0');
