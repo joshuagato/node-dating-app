@@ -122,39 +122,38 @@ exports.setupFinalProfile = async (req, res) => {
     const errors = organizeErrors(result.array());
     if (!result.isEmpty()) return res.send({ errors });
 
-    message = 'No picture uploaded.';
-    success = false;
+    let message = 'No picture uploaded.';
+    let success = false;
     const { id: user_id } = req.user;
     const { imagesBody } = req.body;
     const rawFiles = req.files;
-    // const data = matchedData(req);
 
-    if (!imagesBody || rawFiles.length === 0) return res.send({ success, message });
+    if (!imagesBody || !rawFiles || rawFiles.length === 0) {
+        return res.send({ success, message });
+    }
 
-    if (typeof imagesBody !== 'string') {
-        imagesBody.sort((a, b) => JSON.parse(a).position - JSON.parse(b).position);
+    // Normalize imagesBody into an array
+    const bodies = Array.isArray(imagesBody) ? imagesBody : [imagesBody];
 
-        imagesBody.forEach(async element => {
-            const { position, file } = JSON.parse(element);
+    // Use a standard for...of loop to handle async database creation cleanly
+    for (let i = 0; i < bodies.length; i++) {
+        const { position } = JSON.parse(bodies[i]);
+        // Get the corresponding uploaded file from Multer's array
+        const rawFile = rawFiles[i];
 
-            // const extractFileNameFromPath = path => path.substring();
-
-            const { path } = getRawFile(rawFiles, file);
-
-            await UserPicture.create({ user_id, position, path });
-        });
-    } else {
-        const { position, file } = JSON.parse(imagesBody);
-
-        const { path } = getRawFile(rawFiles, file);
-
-        await UserPicture.create({ user_id, position, path });
+        if (rawFile) {
+            await UserPicture.create({
+                user_id,
+                position,
+                path: rawFile.path // Use Multer's auto-generated file path
+            });
+        }
     }
 
     message = 'Pictures saved';
     success = true;
     res.send({ success, message });
-}
+};
 
 exports.getEncountersProfiles = async (req, res) => {
     const currentUser = req.user;
@@ -445,3 +444,42 @@ exports.getPotentialMatchProfiles = (req, res) => {
 
     res.json({ sucess, unseen, userProfiles, });
 }
+
+exports.getVerificationSelfie = async (req, res) => {
+    const { id: user_id } = req.user;
+
+    try {
+        const verificationPicture = await VerificationPicture.findOne({
+            where: { user_id },
+            attributes: ['path']
+        });
+
+        if (!verificationPicture) {
+            return res.status(404).json({
+                success: false,
+                message: 'Verification selfie not found'
+            });
+        }
+
+        // Read the file and convert to base64
+        const filePath = path.join(__dirname, '..', verificationPicture.path);
+        console.log({ filePath })
+        const imageBuffer = await fs.promises.readFile(filePath);
+        const base64Image = imageBuffer.toString('base64');
+
+        res.json({
+            success: true,
+            data: {
+                base64: `data:image/jpeg;base64,${base64Image}`,
+                path: verificationPicture.path
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching verification selfie:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching verification selfie',
+            error: error.message
+        });
+    }
+};
