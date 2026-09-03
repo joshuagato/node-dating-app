@@ -112,6 +112,7 @@ const calculateDaysDifference = date => {
 }
 
 exports.getRawFile = (rawFiles, file) => {
+    if (!file || !file.path) return null;
     return rawFiles.find(rawFile => './' + rawFile.originalname.toString() === file.path.toString());
 };
 
