@@ -5,6 +5,7 @@ const { validationResult, matchedData } = require('express-validator');
 const { Sequelize, Op } = require('sequelize');
 
 const { organizeErrors, deleteUserFields, getRawFile } = require('../utils/functions');
+const { GENDER } = require('../utils/constants');
 
 const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
@@ -23,12 +24,74 @@ UserPicture.belongsTo(User, { foreignKey: 'user_id', as: 'user_picture' });
 
 
 exports.getProfile = async (req, res) => {
-    const message = 'Profile not found.';
-    const user = deleteUserFields(req.user);
+    const userId = req.user.id; // Assumes auth middleware populates req.user
 
-    if (!user) return res.status(404).json({ success: false, message });
+    // Fetch User with associated Profile and Pictures in parallel queries or single eager load
+    const user = await User.findByPk(userId, {
+        attributes: [
+            'id',
+            'first_name',
+            'last_name',
+            'other_names',
+            'gender',
+            'interested_in',
+            'date_of_birth',
+            'country',
+            'city',
+            'longitude',
+            'latitude'
+        ],
+        include: [
+            {
+                model: UserProfile,
+                as: 'profile', // Adjust association alias if defined in models/index.js
+                attributes: ['first_name_on', 'last_name_on', 'other_names_on', 'gender_on']
+            },
+            {
+                model: UserPicture,
+                as: 'pictures', // Adjust association alias if defined in models/index.js
+                attributes: ['id', 'path', 'position']
+            }
+        ],
+        order: [
+            [{ model: UserPicture, as: 'pictures' }, 'position', 'ASC']
+        ]
+    });
 
-    res.status(200).json(user);
+    if (!user) {
+        return res.status(404).json({
+            success: false,
+            message: 'User profile not found.'
+        });
+    }
+
+    // Format and fallback values to cleanly feed your React component state
+    const responseData = {
+        user: {
+            first_name: user.first_name || '',
+            last_name: user.last_name || '',
+            other_names: user.other_names || '',
+            gender: user.gender || GENDER.MAN,
+            interested_in: user.interested_in || GENDER.WOMEN,
+            date_of_birth: user.date_of_birth || '',
+            country: user.country || '',
+            city: user.city || '',
+            longitude: user.longitude !== null ? String(user.longitude) : '',
+            latitude: user.latitude !== null ? String(user.latitude) : ''
+        },
+        profileVisibility: user.profileVisibility || {
+            first_name_on: true,
+            last_name_on: false,
+            other_names_on: false,
+            gender_on: true
+        },
+        pictures: user.pictures || []
+    };
+
+    return res.send({
+        success: true,
+        data: responseData
+    });
 }
 
 exports.setupBasicProfile = async (req, res) => {
