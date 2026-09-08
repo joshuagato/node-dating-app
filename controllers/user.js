@@ -3,6 +3,7 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
 const { Sequelize, Op } = require('sequelize');
+const { postgresSequelize } = require('../database/postgresql');
 
 const { organizeErrors, deleteUserFields, getRawFile } = require('../utils/functions');
 const { GENDER } = require('../utils/constants');
@@ -93,6 +94,151 @@ exports.getProfile = async (req, res) => {
         data: responseData
     });
 }
+
+exports.updateProfile = async (req, res) => {
+    const transaction = await postgresSequelize.transaction();
+
+    try {
+        const userId = req.user.id;
+
+        // Parse JSON payloads sent via FormData
+        const userData = typeof req.body.user === 'string' ? JSON.parse(req.body.user) : req.body.user;
+        const visibilityData = typeof req.body.visibility === 'string' ? JSON.parse(req.body.visibility) : req.body.visibility;
+        const pictureMeta = typeof req.body.pictureMeta === 'string' ? JSON.parse(req.body.pictureMeta) : (req.body.pictureMeta || []);
+        const deletedPictureIds = typeof req.body.deletedPictureIds === 'string' ? JSON.parse(req.body.deletedPictureIds) : (req.body.deletedPictureIds || []);
+
+        /* -------------------------------------------------------------------------- */
+        /* 1. UPDATE USER DETAILS                                                    */
+        /* -------------------------------------------------------------------------- */
+        if (userData) {
+            await User.update({
+                first_name: userData.first_name,
+                last_name: userData.last_name,
+                other_names: userData.other_names,
+                gender: userData.gender,
+                interested_in: userData.interested_in,
+                date_of_birth: userData.date_of_birth,
+                country: userData.country,
+                city: userData.city,
+                latitude: userData.latitude,
+                longitude: userData.longitude
+            }, {
+                where: { id: userId },
+                transaction
+            });
+        }
+
+        /* -------------------------------------------------------------------------- */
+        /* 2. UPDATE USER PROFILE (VISIBILITY / PREFERENCES)                         */
+        /* -------------------------------------------------------------------------- */
+        if (visibilityData) {
+            await UserProfile.update({
+                last_name_on: Boolean(visibilityData.last_name_on),
+                other_names_on: Boolean(visibilityData.other_names_on),
+                gender_on: Boolean(visibilityData.gender_on)
+            }, {
+                where: { user_id: userId },
+                transaction
+            });
+        }
+
+        /* -------------------------------------------------------------------------- */
+        /* 3. DELETE REMOVED PICTURES                                               */
+        /* -------------------------------------------------------------------------- */
+        if (Array.isArray(deletedPictureIds) && deletedPictureIds.length > 0) {
+            const picsToDelete = await UserPicture.findAll({
+                where: {
+                    id: deletedPictureIds,
+                    user_id: userId
+                },
+                transaction
+            });
+
+            for (const pic of picsToDelete) {
+                if (pic.path) {
+                    const absolutePath = path.resolve(pic.path);
+                    try {
+                        await fs.unlink(absolutePath);
+                    } catch (err) {
+                        console.warn(`File deletion warning for path ${absolutePath}:`, err.message);
+                    }
+                }
+            }
+
+            await UserPicture.destroy({
+                where: {
+                    id: deletedPictureIds,
+                    user_id: userId
+                },
+                transaction
+            });
+        }
+
+        /* -------------------------------------------------------------------------- */
+        /* 4. REORDER EXISTING PICTURES                                              */
+        /* -------------------------------------------------------------------------- */
+        for (const meta of pictureMeta) {
+            if (meta.dbId) {
+                await UserPicture.update(
+                    { position: meta.position },
+                    {
+                        where: {
+                            id: meta.dbId,
+                            user_id: userId
+                        },
+                        transaction
+                    }
+                );
+            }
+        }
+
+        /* -------------------------------------------------------------------------- */
+        /* 5. UPLOAD & INSERT NEW PICTURES                                           */
+        /* -------------------------------------------------------------------------- */
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                const slotMatch = file.fieldname.match(/picture_slot_(\d+)/);
+                const position = slotMatch ? parseInt(slotMatch[1], 10) : null;
+
+                if (position) {
+                    const relativePath = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
+
+                    await UserPicture.create({
+                        user_id: userId,
+                        path: relativePath,  // Changed from image_url to path
+                        position: position
+                    }, { transaction });
+                }
+            }
+        }
+
+        await transaction.commit();
+
+        // Fetch refreshed user state for client confirmation
+        const updatedUser = await User.findByPk(userId, {
+            include: [
+                { model: UserProfile, as: 'profile' },
+                { model: UserPicture, as: 'pictures' }
+            ]
+        });
+
+        return res.send({
+            success: true,
+            message: 'Profile updated successfully.',
+            data: updatedUser
+        });
+
+    } catch (error) {
+        await transaction.rollback();
+        console.error('Profile update error:', error);
+
+        return res.status(500).send({
+            success: false,
+            message: 'Failed to update profile',
+            error: error.message
+        });
+    }
+};
 
 exports.setupBasicProfile = async (req, res) => {
     const result = validationResult(req);
