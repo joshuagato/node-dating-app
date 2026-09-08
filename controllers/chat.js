@@ -27,21 +27,19 @@ Chat.belongsTo(Message, { as: 'last_message', foreignKey: 'last_message_id' });
 Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'Chat' });
 Chat.hasMany(Message, { foreignKey: 'chat_id', as: 'Messages' });
 
+Message.belongsTo(Message, { as: 'reply_to', foreignKey: 'reply_to_id' });
+Message.belongsTo(User, { as: 'sender', foreignKey: 'sender_id' });
+Message.belongsTo(User, { as: 'recipient', foreignKey: 'recipient_id' });
+
 exports.sendMessage = async (req, res) => {
     const result = validationResult(req);
     const errors = organizeErrors(result.array());
     if (!result.isEmpty()) return res.send({ errors });
 
-    // const { message: content, sender_id, recipient_id } = matchedData(req);
-    const { message: content, sender_id, recipient_id } = req.body;
-
-    // const user = req.user;
-    // const { id: user_id } = user;
-
+    const { message: content, sender_id, recipient_id, reply_to_id } = req.body;
 
     const match = await Match.findOne({
-        where:
-        {
+        where: {
             initiator_id: { [Op.or]: [sender_id, recipient_id] },
             seconder_id: { [Op.or]: [sender_id, recipient_id] }
         }
@@ -59,39 +57,47 @@ exports.sendMessage = async (req, res) => {
         const starter_type = match ? CHAT_STARTER.MATCH : CHAT_STARTER.DIRECT;
 
         chat = await Chat.create({
-            initiator_id: sender_id, seconder_id: recipient_id, starter_type
+            initiator_id: sender_id,
+            seconder_id: recipient_id,
+            starter_type
         });
     }
 
     const chat_id = existingChat ? existingChat.id : chat.id;
-    // const match_id = match ? match.id : null;
     const sent_at = new Date();
     const delivered_at = onlineUsers.has(recipient_id) ? new Date() : null;
 
-    // console.log({ chat_id, sender_id, recipient_id, content, sent_at, delivered_at });
-
-    const message = await Message.create({
-        chat_id, sender_id, recipient_id, content, sent_at, delivered_at
+    const createdMessage = await Message.create({
+        chat_id,
+        sender_id,
+        recipient_id,
+        content,
+        sent_at,
+        delivered_at,
+        reply_to_id: reply_to_id || null
     });
 
-    if (existingChat) {
-        existingChat.last_message_id = message.id;
-        existingChat.save();
-    } else if (chat) {
-        chat.last_message_id = message.id;
-        chat.save();
-    }
+    const targetChat = existingChat || chat;
+    targetChat.last_message_id = createdMessage.id;
+    await targetChat.save();
 
-    // const message = { id: parseInt(messages_length) + 1, sender_id, recipient_id, sent_at, delivered_at, read_at: null, content };
+    const message = await Message.findByPk(createdMessage.id, {
+        include: [
+            {
+                model: Message,
+                as: 'reply_to',
+                attributes: ['id', 'content', 'sender_id', 'recipient_id', 'message_type', 'sent_at', 'is_deleted']
+            }
+        ]
+    });
 
     if (onlineUsers.has(recipient_id)) {
         const io = req.app.get('io');
         io.to(`user_${recipient_id}`).emit('new_message', { message });
     }
 
-    const success = true;
-    res.send({ success, message });
-}
+    res.send({ success: true, message });
+};
 
 exports.getChats = async (req, res) => {
     const { id: user_id } = req.user;
@@ -258,14 +264,25 @@ exports.getChats = async (req, res) => {
 }
 
 exports.getChatMessages = async (req, res) => {
-    // const { id: user_id } = req.user;
     const { chat_id } = req.params;
 
-    const messages = await Message.findAll({ where: { chat_id }, order: [['createdAt', 'ASC']] });
+    const messages = await Message.findAll({
+        where: {
+            chat_id,
+            is_deleted: false
+        },
+        order: [['sent_at', 'ASC']],
+        include: [
+            {
+                model: Message,
+                as: 'reply_to',
+                attributes: ['id', 'content', 'sender_id', 'recipient_id', 'message_type', 'sent_at', 'is_deleted']
+            }
+        ]
+    });
 
-    const success = true;
-    res.send({ success, messages });
-}
+    res.send({ success: true, messages });
+};
 
 exports.markMessageAsSeen = async (req, res) => {
     const { message_id: id } = req.params;
