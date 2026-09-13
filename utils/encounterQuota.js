@@ -1,0 +1,82 @@
+const DailyEncounterView = require('../models/DailyEncounterView');
+const {
+    FREE_DAILY_ENCOUNTER_LIMIT,
+    FREE_DAILY_WINDOW_MS,
+} = require('../utils/constants');
+
+/**
+ * Load (and reset if the window expired) the quota record for a user.
+ * Returns:
+ *   {
+ *     limit, seen, remaining, resetsAt, exhausted: boolean,
+ *     record,        // the Sequelize instance (caller may save/increment)
+ *     isPremium
+ *   }
+ * For premium users, returns { isPremium: true, exhausted: false, ... } without touching the DB.
+ */
+async function getQuota(user) {
+    const isPremium = !!user.is_premium;
+
+    if (isPremium) {
+        return {
+            isPremium: true,
+            limit: null,
+            seen: 0,
+            remaining: Infinity,
+            resetsAt: null,
+            exhausted: false,
+            record: null,
+        };
+    }
+
+    const now = new Date();
+    let record = await DailyEncounterView.findOne({
+        where: { user_id: user.id },
+    });
+
+    if (!record) {
+        record = await DailyEncounterView.create({
+            user_id: user.id,
+            count: 0,
+            window_started_at: now,
+        });
+    } else if (now - record.window_started_at >= FREE_DAILY_WINDOW_MS) {
+        record.count = 0;
+        record.window_started_at = now;
+        await record.save();
+    }
+
+    const seen = record.count;
+    const remaining = Math.max(0, FREE_DAILY_ENCOUNTER_LIMIT - seen);
+
+    return {
+        isPremium: false,
+        limit: FREE_DAILY_ENCOUNTER_LIMIT,
+        seen,
+        remaining,
+        resetsAt: new Date(
+            record.window_started_at.getTime() + FREE_DAILY_WINDOW_MS
+        ),
+        exhausted: remaining === 0,
+        record,
+    };
+}
+
+/**
+ * Increment quota for a free user. Safe to call for premium users (no-op).
+ * Uses the instance passed in from getQuota so we don't re-query.
+ */
+async function incrementQuota(quota, by = 1) {
+    if (quota.isPremium || by <= 0) return;
+
+    await DailyEncounterView.increment(
+        { count: by },
+        { where: { user_id: quota.record.user_id } }
+    );
+
+    quota.seen += by;
+    quota.remaining = Math.max(0, quota.limit - quota.seen);
+    quota.exhausted = quota.remaining === 0;
+}
+
+module.exports = { getQuota, incrementQuota };
