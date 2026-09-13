@@ -93,6 +93,15 @@ exports.calculateAge = (dob) => {
     return monthDiff < 0 || (monthDiff === 0 && dayDiff < 0) ? age - 1 : age;
 };
 
+exports.getDisplayName = (user, profile) => {
+    if (!user) return 'User';
+    const parts = [];
+    if (profile?.first_name_on !== false && user.first_name) parts.push(user.first_name);
+    if (profile?.last_name_on && user.last_name) parts.push(user.last_name);
+    if (profile?.other_names_on && user.other_names) parts.push(user.other_names);
+    return parts.length ? parts.join(' ') : 'User';
+};
+
 
 exports.setUserEmailVerificationRequest = async data => await EmailVerificationRequest.create(data);
 
