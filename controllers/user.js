@@ -2,16 +2,19 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
-const { Sequelize, Op } = require('sequelize');
+const { Sequelize, Op, literal, where: seqWhere } = require('sequelize');
 const { postgresSequelize } = require('../database/postgresql');
 
-const { organizeErrors, deleteUserFields, getRawFile } = require('../utils/functions');
+const {
+    organizeErrors, deleteUserFields, getRawFile, calculateAge, getDisplayName
+} = require('../utils/functions');
 const { GENDER } = require('../utils/constants');
 
 const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
 const UserPicture = require('../models/UserPicture');
 const VerificationPicture = require('../models/VerificationPicture');
+const Encounter = require('../models/Encounter');
 
 // User -> UserProfile Associations
 User.hasOne(UserProfile, { foreignKey: 'user_id', as: 'profile' });
@@ -94,6 +97,121 @@ exports.getProfile = async (req, res) => {
         data: responseData
     });
 }
+
+exports.getNearbyUsers = async (req, res) => {
+    const currentUser = req.user;
+    if (!currentUser) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const userId = currentUser.id;
+    const latitude = parseFloat(currentUser.latitude);
+    const longitude = parseFloat(currentUser.longitude);
+    const interestedIn = currentUser.interested_in;
+
+    if (isNaN(latitude) || isNaN(longitude)) {
+        return res.status(400).json({
+            success: false,
+            message: 'User location not set. Please update your profile location.'
+        });
+    }
+
+    // 1. Parameterized Haversine distance expression (in KM)
+    const distanceExpression = `
+            (6371 * acos(
+                LEAST(1.0, GREATEST(-1.0,
+                    cos(radians(${latitude})) * cos(radians("User"."latitude")) * 
+                    cos(radians("User"."longitude") - radians(${longitude})) + 
+                    sin(radians(${latitude})) * sin(radians("User"."latitude"))
+                ))
+            ))
+        `;
+    const distanceLiteral = Sequelize.literal(distanceExpression);
+
+    // 2. Build WHERE clause
+    const whereClause = {
+        id: { [Op.ne]: userId },
+        latitude: { [Op.ne]: null },
+        longitude: { [Op.ne]: null }
+    };
+
+    // Gender filter check
+    if (interestedIn && interestedIn !== GENDER.EVERYONE && interestedIn !== GENDER.EVERONE) {
+        const targetGender = interestedIn === GENDER.MEN ? GENDER.MAN : GENDER.WOMAN;
+        whereClause.gender = targetGender;
+    }
+
+    // 3. Radius filter (Set to 20 km or your desired max distance)
+    const MAX_RADIUS_KM = 20;
+    const distanceCondition = Sequelize.where(distanceLiteral, Op.lte, MAX_RADIUS_KM);
+
+    // 4. Query execution
+    const users = await User.findAll({
+        where: {
+            [Op.and]: [
+                whereClause,
+                distanceCondition
+            ]
+        },
+        attributes: {
+            include: [
+                [distanceLiteral, 'distance']
+            ],
+            exclude: ['password', 'master_password', 'email_verified', 'signup_channel']
+        },
+        include: [
+            {
+                model: UserProfile,
+                as: 'profile',
+                attributes: ['last_name_on', 'other_names_on', 'gender_on', 'first_name_on']
+            },
+            {
+                model: UserPicture,
+                as: 'pictures',
+                required: false,
+                attributes: ['id', 'path', 'position']
+            }
+        ],
+        // Mandatory when using limit + includes with custom WHERE clauses:
+        subQuery: false,
+        order: [[distanceLiteral, 'ASC']],
+        limit: 12
+    });
+
+    // 5. Format response
+    const userProfiles = users.map(user => {
+        const plain = user.toJSON();
+        const profile = plain.profile || {};
+        const pictures = plain.pictures || [];
+
+        // Sort pictures by position manually if ordered association was affected by subQuery: false
+        pictures.sort((a, b) => (a.position || 0) - (b.position || 0));
+
+        const displayName = getDisplayName(plain, profile);
+        const age = calculateAge(plain.date_of_birth);
+        const distance = plain.distance != null ? parseFloat(plain.distance) : null;
+
+        return {
+            id: plain.id,
+            name: displayName,
+            age: age,
+            gender: plain.gender,
+            bio: plain.bio || null,
+            occupation: plain.occupation || null,
+            education: plain.education || null,
+            distance: distance !== null ? Math.ceil(distance) : null,
+            isOnline: plain.is_online || false,
+            lastSeen: plain.last_seen,
+            pictures: pictures.map(p => p.path)
+        };
+    });
+
+    return res.json({
+        success: true,
+        userProfiles
+    });
+};
+
 
 exports.updateProfile = async (req, res) => {
     const transaction = await postgresSequelize.transaction();
@@ -365,115 +483,133 @@ exports.setupFinalProfile = async (req, res) => {
 };
 
 exports.getEncountersProfiles = async (req, res) => {
-    const currentUser = req.user;
-    // let nearbyUsers = [];
-    // const { max_distance } = req.query;
+    try {
+        const currentUser = req.user;
+        const { latitude, longitude, id: currentUserId, is_premium } = currentUser;
+        const { max_distance = 11, limit = 20, offset = 0 } = req.query;
 
-    const { latitude, longitude, id: currentUserId } = currentUser;
+        // Configurable Limit & Ad Frequency Variables
+        const FREE_USER_DAILY_LIMIT = 5; // Change to 40 in production
+        const AD_INTERVAL = 2;             // Show ad every Nth card (Change to 9 in production)
 
-    const { max_distance = 11, limit = 20, offset = 0 } = req.query;
+        let allowedLimit = parseInt(limit);
 
-    const unfilteredUsers = await User.findAll({
-        attributes: [
-            'id',
-            [
-                Sequelize.literal(`
-                CONCAT(
-                    "User"."first_name",
-                    CASE 
-                        WHEN "profile"."last_name_on" = TRUE THEN CONCAT(' ', "User"."last_name")
-                        ELSE ''
-                    END,
-                    CASE 
-                        WHEN "profile"."other_names_on" = TRUE THEN CONCAT(' ', "User"."other_names")
-                        ELSE ''
-                    END
-                )
-            `),
-                'name'
-            ],
-            'gender',
-            'city',
-            [
-                Sequelize.literal(`
-                DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
-            `),
-                'age'
-            ],
-            [
-                Sequelize.literal(`
-                    ROUND(
-                        (
-                            6371 * acos(
-                                cos(radians(${latitude}))
-                                * cos(radians("User"."latitude"))
-                                * cos(radians("User"."longitude") - radians(${longitude}))
-                                + sin(radians(${latitude}))
-                                * sin(radians("User"."latitude"))
-                            )
-                        )::numeric, 1
-                    )
-                `),
-                'distance_from'
-            ],
-            'is_online',
-            'last_seen'
-        ],
-        include: [
-            {
-                model: UserProfile,
-                as: 'profile',
-                attributes: [],
-                required: false
-            },
-            {
-                model: UserPicture,
-                as: 'pictures',
-                attributes: ['path', 'position'],
-                required: false,
-                separate: true,
-                order: [['position', 'ASC']]
+        // 1. Enforce 24-Hour Rolling Window Limit for Free Users
+        if (!is_premium) {
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+            // Count swipes/views in the last 24 hours (assuming an Encounter/Swipe model exists)
+            const viewsCount = await Encounter.count({
+                where: {
+                    initiator_id: currentUserId,
+                    createdAt: { [Sequelize.Op.gte]: twentyFourHoursAgo }
+                }
+            });
+
+            const remainingViews = Math.max(0, FREE_USER_DAILY_LIMIT - viewsCount);
+
+            if (remainingViews <= 0) {
+                return res.json({
+                    success: true,
+                    myself: {},
+                    users: [],
+                    limitReached: true,
+                    message: "Daily limit reached for free users."
+                });
             }
-        ],
-        where: {
-            // id: { [Sequelize.Op.ne]: currentUserId },
-            latitude: { [Sequelize.Op.ne]: null },
-            longitude: { [Sequelize.Op.ne]: null },
-            [Sequelize.Op.and]: Sequelize.literal(`
-                (
-                    6371 * acos(
-                        cos(radians(${latitude}))
-                        * cos(radians("User"."latitude"))
-                        * cos(radians("User"."longitude") - radians(${longitude}))
-                        + sin(radians(${latitude}))
-                        * sin(radians("User"."latitude"))
-                    )
-                ) <= ${max_distance}
-            `)
-        },
-        order: [
-            [Sequelize.literal('distance_from'), 'ASC']
-        ],
-        limit: parseInt(limit),
-        offset: parseInt(offset)
-    });
 
-    console.log({ unfilteredUsers })
-
-    const myself = {};
-    unfilteredUsers.forEach(user => {
-        if (user.id.toString() === currentUserId.toString()) {
-            myself.id = user.dataValues.id;
-            myself.name = user.dataValues.name;
-            myself.picture = user.dataValues.pictures[0].path;
+            allowedLimit = Math.min(allowedLimit, remainingViews);
         }
-    })
 
-    const users = unfilteredUsers.filter(user => user.id.toString() !== currentUserId.toString());
+        // 2. Query Nearby Profiles
+        const unfilteredUsers = await User.findAll({
+            attributes: [
+                'id',
+                [
+                    Sequelize.literal(`
+                        CONCAT(
+                            "User"."first_name",
+                            CASE WHEN "profile"."last_name_on" = TRUE THEN CONCAT(' ', "User"."last_name") ELSE '' END,
+                            CASE WHEN "profile"."other_names_on" = TRUE THEN CONCAT(' ', "User"."other_names") ELSE '' END
+                        )
+                    `),
+                    'name'
+                ],
+                'gender',
+                'city',
+                [
+                    Sequelize.literal(`DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer`),
+                    'age'
+                ],
+                [
+                    Sequelize.literal(`
+                        ROUND(
+                            (6371 * acos(
+                                LEAST(1.0, GREATEST(-1.0,
+                                    cos(radians(${latitude})) * cos(radians("User"."latitude")) * 
+                                    cos(radians("User"."longitude") - radians(${longitude})) + 
+                                    sin(radians(${latitude})) * sin(radians("User"."latitude"))
+                                ))
+                            ))::numeric, 1
+                        )
+                    `),
+                    'distance_from'
+                ],
+                'is_online',
+                'last_seen'
+            ],
+            include: [
+                { model: UserProfile, as: 'profile', attributes: [], required: false },
+                {
+                    model: UserPicture,
+                    as: 'pictures',
+                    attributes: ['path', 'position'],
+                    required: false,
+                    separate: true,
+                    order: [['position', 'ASC']]
+                }
+            ],
+            where: {
+                id: { [Sequelize.Op.ne]: currentUserId },
+                latitude: { [Sequelize.Op.ne]: null },
+                longitude: { [Sequelize.Op.ne]: null },
+                [Sequelize.Op.and]: Sequelize.literal(`
+                    (6371 * acos(
+                        LEAST(1.0, GREATEST(-1.0,
+                            cos(radians(${latitude})) * cos(radians("User"."latitude")) * 
+                            cos(radians("User"."longitude") - radians(${longitude})) + 
+                            sin(radians(${latitude})) * sin(radians("User"."latitude"))
+                        ))
+                    )) <= ${max_distance}
+                `)
+            },
+            order: [[Sequelize.literal('distance_from'), 'ASC']],
+            limit: allowedLimit,
+            offset: parseInt(offset)
+        });
 
-    let success = true;
-    res.send({ success, myself, users });
-}
+        // 3. Separate current user profile object
+        const myself = {
+            id: currentUser.id,
+            name: currentUser.first_name,
+            picture: currentUser.pictures?.[0]?.path || null
+        };
+
+        const users = unfilteredUsers.map(u => u.toJSON());
+
+        return res.send({
+            success: true,
+            myself,
+            users,
+            adInterval: AD_INTERVAL,
+            isPremium: Boolean(is_premium)
+        });
+
+    } catch (error) {
+        console.error('Error in getEncountersProfiles:', error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
 
 exports.getPotentialMatchProfiles = (req, res) => {
     // const userProfiles = [
