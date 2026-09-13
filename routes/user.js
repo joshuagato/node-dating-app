@@ -6,7 +6,8 @@ const multer = require('multer');
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const {
     getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
-    setupFinalProfile, getEncountersProfiles, getVerificationSelfie, updateProfile
+    setupFinalProfile, getVerificationSelfie, updateProfile,
+    getNearbyUsers
 } = require('../controllers/user');
 const {
     validateName, validatePassword, validateConfirmPassword, validateLocation,
@@ -32,8 +33,8 @@ router.get('/verification-selfie', IsAuthenticated, getVerificationSelfie);
 
 router.put('/final-profile', IsAuthenticated, upload.array('images'), setupFinalProfile);
 
-router.get('/get-encounters-profiles', IsAuthenticated, getEncountersProfiles);
-
 router.get('/get-potential-match-profiles', IsAuthenticated, getPotentialMatchProfiles);
+
+router.get('/get-nearby-users', IsAuthenticated, getNearbyUsers);
 
 module.exports = { userRouter: router };
