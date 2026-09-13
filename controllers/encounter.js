@@ -3,13 +3,15 @@ const { Sequelize, Op } = require('sequelize');
 const moment = require('moment');
 
 const { organizeErrors } = require('../utils/functions');
+const { ENCOUNTER_ACTION, MATCH_STATUS, FREE_DAILY_ENCOUNTER_LIMIT, AD_EVERY_N_CARDS, FREE_DAILY_WINDOW_MS } = require('../utils/constants');
+const { getQuota, incrementQuota } = require('../utils/encounterQuota');
 
 const Encounter = require('../models/Encounter');
 const Match = require('../models/Match');
 const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
-const { ENCOUNTER_ACTION, MATCH_STATUS } = require('../utils/constants');
 const UserPicture = require('../models/UserPicture');
+const DailyEncounterView = require('../models/DailyEncounterView');
 
 User.hasMany(Encounter, { foreignKey: 'initiator_id', as: 'initiatedEncounters' });
 User.hasMany(Encounter, { foreignKey: 'recipient_id', as: 'receivedEncounters' });
@@ -17,41 +19,310 @@ User.hasMany(Encounter, { foreignKey: 'recipient_id', as: 'receivedEncounters' }
 Encounter.belongsTo(User, { foreignKey: 'initiator_id', as: 'initiator' });
 Encounter.belongsTo(User, { foreignKey: 'recipient_id', as: 'recipient' });
 
+function formatMyself(me) {
+    if (!me) return null;
+
+    const plain = me.toJSON ? me.toJSON() : me;
+
+    return {
+        id: plain.id,
+        name: plain.name,
+        picture: plain.pictures?.[0]?.path || null,
+        gender: plain.gender || null,
+        city: plain.city || null,
+        is_online: plain.is_online || false,
+        last_seen: plain.last_seen || null,
+    };
+}
+
+exports.getEncountersProfiles = async (req, res) => {
+    try {
+        // ---- 0. Auth ----
+        const currentUser = req.user;
+        if (!currentUser) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const { id: currentUserId } = currentUser;
+
+        // ---- 1. Validate & normalise location ----
+        const lat = Number(currentUser.latitude);
+        const lng = Number(currentUser.longitude);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Your location is not set. Please update your profile location.',
+            });
+        }
+
+        // ---- 2. Validate & normalise query params ----
+        let maxDistanceKm = Number(req.query.max_distance);
+        if (!Number.isFinite(maxDistanceKm) || maxDistanceKm <= 0) {
+            maxDistanceKm = 11;
+        }
+
+        const requestedLimit = Math.max(
+            1,
+            Math.min(50, parseInt(req.query.limit, 10) || 20)
+        );
+        const requestedOffset = Math.max(
+            0,
+            parseInt(req.query.offset, 10) || 0
+        );
+
+        // ---- 3. Quota check (READ ONLY — increment happens in like/dislike) ----
+        const quota = await getQuota(currentUser);
+
+        const quotaPayload = quota.isPremium
+            ? null
+            : {
+                limit: quota.limit,
+                seen: quota.seen,
+                remaining: quota.remaining,
+                resetsAt: quota.resetsAt,
+            };
+
+        // ---- 4. Fetch "myself" separately ----
+        // The main profile query excludes the current user, so we fetch their
+        // own record with its own query. Needed by the frontend for chat
+        // navigation and end-card rendering.
+        const myselfPromise = User.findByPk(currentUserId, {
+            attributes: [
+                'id',
+                [
+                    Sequelize.literal(`
+                        CONCAT(
+                            "User"."first_name",
+                            CASE WHEN "profile"."last_name_on" = TRUE
+                                 THEN CONCAT(' ', "User"."last_name") ELSE '' END,
+                            CASE WHEN "profile"."other_names_on" = TRUE
+                                 THEN CONCAT(' ', "User"."other_names") ELSE '' END
+                        )
+                    `),
+                    'name',
+                ],
+                'gender',
+                'city',
+                'is_online',
+                'last_seen',
+            ],
+            include: [
+                {
+                    model: UserProfile,
+                    as: 'profile',
+                    attributes: [],
+                    required: false,
+                },
+                {
+                    model: UserPicture,
+                    as: 'pictures',
+                    attributes: ['path', 'position'],
+                    required: false,
+                    separate: true,
+                    order: [['position', 'ASC']],
+                },
+            ],
+        });
+
+        // ---- 5. Short-circuit when quota is exhausted ----
+        if (!quota.isPremium && quota.exhausted) {
+            const me = await myselfPromise;
+
+            return res.status(200).json({
+                success: true,
+                myself: formatMyself(me),
+                users: [],
+                quota: quotaPayload,
+                quotaExhausted: true,
+                adEveryN: AD_EVERY_N_CARDS,
+                message: 'Daily encounter limit reached. Come back later.',
+            });
+        }
+
+        // ---- 6. Cap the effective limit by remaining quota ----
+        const effectiveLimit = quota.isPremium
+            ? requestedLimit
+            : Math.min(requestedLimit, quota.remaining);
+
+        // ---- 7. Profile query ----
+        // Anti-join rule (STRICT ONE-DIRECTIONAL):
+        //   - EXCLUDE any user the current user has already acted on
+        //     (i.e. rows in `initiatedEncounters`).
+        //   - DO NOT exclude users who acted on the current user first
+        //     (`receivedEncounters` is intentionally NOT joined).
+        //
+        // `subQuery: false` is required because the anti-join condition
+        // references the joined alias at the top level. It's safe here
+        // because UserPicture is loaded with `separate: true`, so it can't
+        // multiply the Users rows.
+        const distanceLiteral = Sequelize.literal(`
+            ROUND(
+                (
+                    6371 * acos(
+                        LEAST(1, GREATEST(-1,
+                            cos(radians(:lat))
+                            * cos(radians("User"."latitude"))
+                            * cos(radians("User"."longitude") - radians(:lng))
+                            + sin(radians(:lat))
+                            * sin(radians("User"."latitude"))
+                        ))
+                    )
+                )::numeric, 1
+            )
+        `);
+
+        const profilesPromise = User.findAll({
+            attributes: [
+                'id',
+                [
+                    Sequelize.literal(`
+                        CONCAT(
+                            "User"."first_name",
+                            CASE WHEN "profile"."last_name_on" = TRUE
+                                 THEN CONCAT(' ', "User"."last_name") ELSE '' END,
+                            CASE WHEN "profile"."other_names_on" = TRUE
+                                 THEN CONCAT(' ', "User"."other_names") ELSE '' END
+                        )
+                    `),
+                    'name',
+                ],
+                'gender',
+                'city',
+                [
+                    Sequelize.literal(`
+                        DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
+                    `),
+                    'age',
+                ],
+                [distanceLiteral, 'distance_from'],
+                'is_online',
+                'last_seen',
+            ],
+            include: [
+                {
+                    model: UserProfile,
+                    as: 'profile',
+                    attributes: [],
+                    required: false,
+                },
+                {
+                    model: UserPicture,
+                    as: 'pictures',
+                    attributes: ['path', 'position'],
+                    required: false,
+                    separate: true,
+                    order: [['position', 'ASC']],
+                },
+                {
+                    // LEFT JOIN on encounters I initiated. A match here means
+                    // I've already acted on this user → exclude them.
+                    model: Encounter,
+                    as: 'initiatedEncounters',
+                    attributes: [],
+                    required: false,
+                    where: { initiator_id: currentUserId },
+                },
+                // NOTE: `receivedEncounters` is deliberately NOT included.
+                // Users who acted on me but whom I haven't acted on yet
+                // should still show up in my encounters feed.
+            ],
+            where: {
+                id: { [Op.ne]: currentUserId },
+                latitude: { [Op.ne]: null },
+                longitude: { [Op.ne]: null },
+
+                // Anti-join: exclude users I've already encountered.
+                // Row survives only when the LEFT JOIN produced no match.
+                '$initiatedEncounters.id$': { [Op.is]: null },
+
+                [Op.and]: Sequelize.literal(`
+                    (
+                        6371 * acos(
+                            LEAST(1, GREATEST(-1,
+                                cos(radians(:lat))
+                                * cos(radians("User"."latitude"))
+                                * cos(radians("User"."longitude") - radians(:lng))
+                                + sin(radians(:lat))
+                                * sin(radians("User"."latitude"))
+                            ))
+                        )
+                    ) <= :maxDistance
+                `),
+            },
+            order: [[Sequelize.literal('distance_from'), 'ASC']],
+            limit: effectiveLimit,
+            offset: requestedOffset,
+            replacements: { lat, lng, maxDistance: maxDistanceKm },
+            subQuery: false,
+        });
+
+        const [me, users] = await Promise.all([myselfPromise, profilesPromise]);
+
+        // ---- 8. Respond (no quota increment here) ----
+        return res.json({
+            success: true,
+            myself: formatMyself(me),
+            users,
+            quota: quotaPayload,        // null for premium
+            quotaExhausted: false,
+            adEveryN: AD_EVERY_N_CARDS,
+        });
+    } catch (error) {
+        console.error('Error fetching encounter profiles:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch encounter profiles',
+            error: error.message,
+        });
+    }
+};
+
 
 exports.likeUser = async (req, res) => {
-    const result = validationResult(req);
-    const errors = organizeErrors(result.array());
-    if (!result.isEmpty()) return res.send({ errors });
+    try {
+        const result = validationResult(req);
+        const errors = organizeErrors(result.array());
+        if (!result.isEmpty()) return res.send({ errors });
 
-    const { id: initiator_id } = req.user;
-    const { recipient_id, action } = req.body;
-    let match = false;
-    let success = false;
+        const { id: initiator_id } = req.user;
+        const { recipient_id } = req.body;
+        let match = false;
 
-    const existingEncounter = await Encounter.findOne({
-        where: { initiator_id, recipient_id }
-    });
+        const existingEncounter = await Encounter.findOne({
+            where: { initiator_id, recipient_id },
+        });
 
-    if (existingEncounter) return res.send({ success });
+        if (existingEncounter) return res.send({ success: false, alreadySeen: true });
 
-    const reciprocalEncounter = await Encounter.findOne({
-        where: {
-            initiator_id: recipient_id, recipient_id: initiator_id,
-            action: { [Op.in]: [ENCOUNTER_ACTION.LIKE, ENCOUNTER_ACTION.SUPER_LIKE] }
+        const reciprocalEncounter = await Encounter.findOne({
+            where: {
+                initiator_id: recipient_id,
+                recipient_id: initiator_id,
+                action: { [Op.in]: [ENCOUNTER_ACTION.LIKE, ENCOUNTER_ACTION.SUPER_LIKE] },
+            },
+        });
+
+        if (reciprocalEncounter) {
+            match = true;
+            await Match.create({
+                initiator_id: reciprocalEncounter.initiator_id,
+                seconder_id: initiator_id,
+            });
         }
-    });
 
-    if (reciprocalEncounter) {
-        match = true;
-        await Match.create({ initiator_id: reciprocalEncounter.initiator_id, seconder_id: initiator_id });
+        req.body.initiator_id = initiator_id;
+        await Encounter.create(req.body);
+
+        const quota = await getQuota(req.user);
+        await incrementQuota(quota, 1);
+
+        return res.send({ success: true, match });
+    } catch (error) {
+        console.error('likeUser error:', error);
+        return res.status(500).send({ success: false, error: error.message });
     }
-
-    req.body.initiator_id = initiator_id;
-    await Encounter.create(req.body);
-
-    success = true;
-    res.send({ success, match });
-}
+};
 
 exports.getUsersWhoLikeMe = async (req, res) => {
     const { id: currentUserId } = req.user;
@@ -165,27 +436,34 @@ exports.getUsersWhoLikeMe = async (req, res) => {
 
 
 exports.dislikeUser = async (req, res) => {
-    const result = validationResult(req);
-    const errors = organizeErrors(result.array());
-    if (!result.isEmpty()) return res.send({ errors });
+    try {
+        const result = validationResult(req);
+        const errors = organizeErrors(result.array());
+        if (!result.isEmpty()) return res.send({ errors });
 
-    const { id: initiator_id } = req.user;
-    const { recipient_id, action } = req.body;
-    let match = false;
-    let success = false;
+        const { id: initiator_id } = req.user;
+        const { recipient_id } = req.body;
 
-    const existingEncounter = await Encounter.findOne({
-        where: { initiator_id, recipient_id }
-    });
+        const existingEncounter = await Encounter.findOne({
+            where: { initiator_id, recipient_id },
+        });
 
-    if (existingEncounter) return res.send({ success });
+        // Already encountered — do NOT count again, do NOT increment quota
+        if (existingEncounter) return res.send({ success: false, alreadySeen: true });
 
-    req.body.initiator_id = initiator_id;
-    await Encounter.create(req.body);
+        req.body.initiator_id = initiator_id;
+        await Encounter.create(req.body);
 
-    success = true;
-    res.send({ success });
-}
+        // Quota increment: 1 profile consumed per new encounter
+        const quota = await getQuota(req.user);
+        await incrementQuota(quota, 1);
+
+        return res.send({ success: true });
+    } catch (error) {
+        console.error('dislikeUser error:', error);
+        return res.status(500).send({ success: false, error: error.message });
+    }
+};
 
 exports.getUsersWhoDisLikeMe = async (req, res) => {
     const { id: currentUserId } = req.user;
