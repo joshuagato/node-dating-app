@@ -177,22 +177,22 @@ exports.getEncountersProfiles = async (req, res) => {
                 'id',
                 [
                     Sequelize.literal(`
-                        CONCAT(
-                            "User"."first_name",
-                            CASE WHEN "profile"."last_name_on" = TRUE
-                                 THEN CONCAT(' ', "User"."last_name") ELSE '' END,
-                            CASE WHEN "profile"."other_names_on" = TRUE
-                                 THEN CONCAT(' ', "User"."other_names") ELSE '' END
-                        )
-                    `),
+                CONCAT(
+                    "User"."first_name",
+                    CASE WHEN "profile"."last_name_on" = TRUE
+                         THEN CONCAT(' ', "User"."last_name") ELSE '' END,
+                    CASE WHEN "profile"."other_names_on" = TRUE
+                         THEN CONCAT(' ', "User"."other_names") ELSE '' END
+                )
+            `),
                     'name',
                 ],
                 'gender',
                 'city',
                 [
                     Sequelize.literal(`
-                        DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
-                    `),
+                DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
+            `),
                     'age',
                 ],
                 [distanceLiteral, 'distance_from'],
@@ -215,40 +215,37 @@ exports.getEncountersProfiles = async (req, res) => {
                     order: [['position', 'ASC']],
                 },
                 {
-                    // LEFT JOIN on encounters I initiated. A match here means
-                    // I've already acted on this user → exclude them.
+                    // LEFT JOIN on encounters where the CANDIDATE is the recipient.
+                    // Combined with the include `where`, this matches encounters
+                    // that I initiated *to this candidate*.
                     model: Encounter,
-                    as: 'initiatedEncounters',
+                    as: 'receivedEncounters',     // <-- the candidate's received side
                     attributes: [],
                     required: false,
-                    where: { initiator_id: currentUserId },
+                    where: { initiator_id: currentUserId },   // <-- me as initiator
                 },
-                // NOTE: `receivedEncounters` is deliberately NOT included.
-                // Users who acted on me but whom I haven't acted on yet
-                // should still show up in my encounters feed.
             ],
             where: {
                 id: { [Op.ne]: currentUserId },
                 latitude: { [Op.ne]: null },
                 longitude: { [Op.ne]: null },
 
-                // Anti-join: exclude users I've already encountered.
-                // Row survives only when the LEFT JOIN produced no match.
-                '$initiatedEncounters.id$': { [Op.is]: null },
+                // Anti-join: keep only candidates with NO matching encounter row.
+                '$receivedEncounters.id$': { [Op.is]: null },
 
                 [Op.and]: Sequelize.literal(`
-                    (
-                        6371 * acos(
-                            LEAST(1, GREATEST(-1,
-                                cos(radians(:lat))
-                                * cos(radians("User"."latitude"))
-                                * cos(radians("User"."longitude") - radians(:lng))
-                                + sin(radians(:lat))
-                                * sin(radians("User"."latitude"))
-                            ))
-                        )
-                    ) <= :maxDistance
-                `),
+            (
+                6371 * acos(
+                    LEAST(1, GREATEST(-1,
+                        cos(radians(:lat))
+                        * cos(radians("User"."latitude"))
+                        * cos(radians("User"."longitude") - radians(:lng))
+                        + sin(radians(:lat))
+                        * sin(radians("User"."latitude"))
+                    ))
+                )
+            ) <= :maxDistance
+        `),
             },
             order: [[Sequelize.literal('distance_from'), 'ASC']],
             limit: effectiveLimit,
