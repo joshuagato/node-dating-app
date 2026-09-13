@@ -3,7 +3,7 @@ const { capitalize } = require('../utils/functions');
 
 const validateEmail = () => body('email').trim().notEmpty().withMessage('Email cannot be empty').isEmail().withMessage('Enter a valid email address');
 
-const validateChatMessage = () => body('message').trim().notEmpty().withMessage('Message cannot be empty');
+const validateChatMessage = fieldName => body(fieldName).trim().notEmpty().withMessage(`${capitalize(fieldName)} cannot be empty`);
 
 const validatePictures = () => body('imagesBody').trim().notEmpty().withMessage('You must upload at least 2 Pictures');
 
