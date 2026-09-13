@@ -99,6 +99,45 @@ exports.sendMessage = async (req, res) => {
     res.send({ success: true, message });
 };
 
+exports.editMessage = async (req, res) => {
+    const result = validationResult(req);
+    const errors = organizeErrors(result.array());
+    if (!result.isEmpty()) return res.send({ errors });
+
+    const { message_id, content, sender_id } = req.body;
+
+    const existingMessage = await Message.findByPk(message_id);
+    if (!existingMessage) {
+        return res.send({ success: false, message: 'Message not found.' });
+    }
+
+    if (existingMessage.sender_id !== sender_id) {
+        return res.send({ success: false, message: 'Unauthorized to edit this message.' });
+    }
+
+    existingMessage.content = content;
+    existingMessage.edited_at = new Date();
+    existingMessage.edit_count = (existingMessage.edit_count || 0) + 1;
+    await existingMessage.save();
+
+    const updatedMessage = await Message.findByPk(message_id, {
+        include: [
+            {
+                model: Message,
+                as: 'reply_to',
+                attributes: ['id', 'content', 'sender_id', 'message_type', 'sent_at', 'is_deleted']
+            }
+        ]
+    });
+
+    if (onlineUsers.has(updatedMessage.recipient_id)) {
+        const io = req.app.get('io');
+        io.to(`user_${updatedMessage.recipient_id}`).emit('message_edited', { message: updatedMessage });
+    }
+
+    res.send({ success: true, message: updatedMessage });
+};
+
 exports.getChats = async (req, res) => {
     const { id: user_id } = req.user;
 
