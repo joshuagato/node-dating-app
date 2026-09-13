@@ -370,13 +370,28 @@ exports.getUsersDisLikedByMe = async (req, res) => {
 exports.getNewLikesCount = async (req, res) => {
     const userId = req.user.id;
 
+    // 1. Get IDs of users that the current user has already liked
+    const usersAlreadyLikedByMe = await Encounter.findAll({
+        where: {
+            initiator_id: userId,
+            action: ENCOUNTER_ACTION.LIKE
+        },
+        attributes: ['recipient_id'],
+        raw: true
+    }).then(results => results.map(row => row.recipient_id));
+
+    // 2. Fetch count of incoming likes excluding already reciprocated users
+
     const count = await Encounter.count({
         where: {
             recipient_id: userId,
             seen_in_users_who_like_me: false,
             seen_in_users_who_like_me_at: null,
-            action: ENCOUNTER_ACTION.LIKE
-        }
+            action: ENCOUNTER_ACTION.LIKE,
+            initiator_id: {
+                [Op.notIn]: usersAlreadyLikedByMe
+            }
+        },
     });
 
     const success = true;
