@@ -2,10 +2,14 @@ const express = require('express');
 const router = express.Router();
 
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
-const { sendMessage, getChats, getChatMessages, markMessageAsSeen, getNewChatsCount } = require('../controllers/chat');
+const {
+    sendMessage, getChats, getChatMessages, markMessageAsSeen, getNewChatsCount, editMessage
+} = require('../controllers/chat');
 const { validateChatMessage } = require('../validators');
 
-router.post('/send-message', validateChatMessage(), IsAuthenticated, sendMessage);
+router.post('/send-message', validateChatMessage('message'), IsAuthenticated, sendMessage);
+
+router.patch('/edit-message', validateChatMessage('content'), IsAuthenticated, editMessage);
 
 router.get('/get-chats', IsAuthenticated, getChats);
 
