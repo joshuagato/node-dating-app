@@ -7,11 +7,11 @@ const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const {
     getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
     setupFinalProfile, getVerificationSelfie, updateProfile,
-    getNearbyUsers
+    getNearbyUsers, completeProfileSetup
 } = require('../controllers/user');
 const {
     validateName, validatePassword, validateConfirmPassword, validateLocation,
-    validateCoordinates, validateSelfie
+    validateCoordinates, validateSelfie, profileSetupValidation
 } = require('../validators');
 const { upload } = require('../utils/utils');
 
@@ -28,6 +28,8 @@ router.put('/advanced-profile', IsAuthenticated,
     validateLocation('country'), validateLocation('city'),
     validateCoordinates('longitude'), validateCoordinates('latitude'), validateSelfie(),
     setupAdvancedProfile);
+
+router.put('/complete-profile-setup', IsAuthenticated, profileSetupValidation, completeProfileSetup);
 
 router.get('/verification-selfie', IsAuthenticated, getVerificationSelfie);
 
