@@ -482,6 +482,57 @@ exports.setupFinalProfile = async (req, res) => {
     res.send({ success, message });
 };
 
+exports.completeProfileSetup = async (req, res) => {
+    try {
+        // Validation handling
+        const result = validationResult(req);
+        const errors = organizeErrors(result.array());
+        if (!result.isEmpty()) return res.send({ errors });
+
+        const userId = req.user.id;
+        const {
+            bio,
+            reason_on_app,
+            education,
+            relationship_status,
+            height_cm,
+            smoking,
+            drinking
+        } = req.body;
+
+        // 1. Upsert profile attributes into UserProfile
+        await UserProfile.upsert({
+            user_id: userId,
+            bio: bio ? bio.trim() : null,
+            reason_on_app,
+            education,
+            relationship_status: relationship_status || 'Single',
+            height_cm: height_cm ? parseInt(height_cm, 10) : null,
+            smoking: smoking || 'Never',
+            drinking: drinking || 'Socially'
+        });
+
+        // 2. Mark profile_page_setup flag as true on the main User model
+        await User.update(
+            { profile_page_setup: true },
+            { where: { id: userId } }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: 'Profile setup completed successfully!'
+        });
+
+    } catch (error) {
+        console.error('Error completing profile setup:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to complete profile setup',
+            error: error.message
+        });
+    }
+};
+
 
 exports.getPotentialMatchProfiles = (req, res) => {
     // const userProfiles = [
