@@ -3,7 +3,8 @@ const { Sequelize, Op } = require('sequelize');
 const moment = require('moment');
 
 const { organizeErrors } = require('../utils/functions');
-const { ENCOUNTER_ACTION, MATCH_STATUS, FREE_DAILY_ENCOUNTER_LIMIT, AD_EVERY_N_CARDS, FREE_DAILY_WINDOW_MS } = require('../utils/constants');
+const { ENCOUNTER_ACTION, MATCH_STATUS, FREE_DAILY_ENCOUNTER_LIMIT, AD_EVERY_N_CARDS,
+    FREE_DAILY_WINDOW_MS, CHAT_STARTER } = require('../utils/constants');
 const { getQuota, incrementQuota } = require('../utils/encounterQuota');
 
 const Encounter = require('../models/Encounter');
@@ -12,6 +13,7 @@ const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
 const UserPicture = require('../models/UserPicture');
 const DailyEncounterView = require('../models/DailyEncounterView');
+const Chat = require('../models/Chat');
 
 User.hasMany(Encounter, { foreignKey: 'initiator_id', as: 'initiatedEncounters' });
 User.hasMany(Encounter, { foreignKey: 'recipient_id', as: 'receivedEncounters' });
@@ -284,37 +286,97 @@ exports.likeUser = async (req, res) => {
 
         const { id: initiator_id } = req.user;
         const { recipient_id } = req.body;
-        let match = false;
 
+        // ---- 1. Already acted on this user? ----
         const existingEncounter = await Encounter.findOne({
             where: { initiator_id, recipient_id },
         });
+        if (existingEncounter) {
+            return res.send({ success: false, alreadySeen: true, match: false });
+        }
 
-        if (existingEncounter) return res.send({ success: false, alreadySeen: true });
-
+        // ---- 2. Has the recipient already liked me? ----
         const reciprocalEncounter = await Encounter.findOne({
             where: {
                 initiator_id: recipient_id,
                 recipient_id: initiator_id,
-                action: { [Op.in]: [ENCOUNTER_ACTION.LIKE, ENCOUNTER_ACTION.SUPER_LIKE] },
+                action: {
+                    [Op.in]: [
+                        ENCOUNTER_ACTION.LIKE,
+                        ENCOUNTER_ACTION.SUPER_LIKE,
+                    ],
+                },
             },
         });
 
+        let match = false;
+        let matchRecord = null;
+        let chatRecord = null;
+
         if (reciprocalEncounter) {
-            match = true;
-            await Match.create({
-                initiator_id: reciprocalEncounter.initiator_id,
-                seconder_id: initiator_id,
+            // ---- 3a. Idempotency: don't create a duplicate Match ----
+            // The pair is unordered; check both orientations.
+            const existingMatch = await Match.findOne({
+                where: {
+                    [Op.or]: [
+                        { initiator_id: recipient_id, seconder_id: initiator_id },
+                        { initiator_id: initiator_id, seconder_id: recipient_id },
+                    ],
+                },
             });
+
+            if (existingMatch) {
+                matchRecord = existingMatch;
+                match = true;
+            } else {
+                // The other user liked first, so they are the initiator and
+                // the current user is the seconder.
+                matchRecord = await Match.create({
+                    initiator_id: recipient_id,
+                    seconder_id: initiator_id,
+                });
+                match = true;
+            }
+
+            // ---- 3b. Ensure a Chat exists for this match ----
+            const existingChat = await Chat.findOne({
+                where: {
+                    [Op.or]: [
+                        { initiator_id: recipient_id, seconder_id: initiator_id },
+                        { initiator_id: initiator_id, seconder_id: recipient_id },
+                    ],
+                },
+            });
+
+            if (existingChat) {
+                chatRecord = existingChat;
+            } else {
+                chatRecord = await Chat.create({
+                    initiator_id: recipient_id,
+                    seconder_id: initiator_id,
+                    starter_type: CHAT_STARTER.MATCH,
+                });
+            }
         }
 
+        // ---- 4. Persist the current user's like ----
         req.body.initiator_id = initiator_id;
         await Encounter.create(req.body);
 
+        // ---- 5. Quota ----
         const quota = await getQuota(req.user);
         await incrementQuota(quota, 1);
 
-        return res.send({ success: true, match });
+        return res.send({
+            success: true,
+            match,
+            matchId: matchRecord?.id || null,
+            chatId: chatRecord?.id || null,
+            recipient: {
+                id: recipient_id,
+                name: req.body.recipient_name || null,
+            },
+        });
     } catch (error) {
         console.error('likeUser error:', error);
         return res.status(500).send({ success: false, error: error.message });
