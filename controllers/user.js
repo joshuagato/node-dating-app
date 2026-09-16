@@ -28,75 +28,105 @@ UserPicture.belongsTo(User, { foreignKey: 'user_id', as: 'user_picture' });
 
 
 exports.getProfile = async (req, res) => {
-    const userId = req.user.id; // Assumes auth middleware populates req.user
+    try {
+        const userId = req.user.id;
 
-    // Fetch User with associated Profile and Pictures in parallel queries or single eager load
-    const user = await User.findByPk(userId, {
-        attributes: [
-            'id',
-            'first_name',
-            'last_name',
-            'other_names',
-            'gender',
-            'interested_in',
-            'date_of_birth',
-            'country',
-            'city',
-            'longitude',
-            'latitude'
-        ],
-        include: [
-            {
-                model: UserProfile,
-                as: 'profile', // Adjust association alias if defined in models/index.js
-                attributes: ['first_name_on', 'last_name_on', 'other_names_on', 'gender_on']
-            },
-            {
-                model: UserPicture,
-                as: 'pictures', // Adjust association alias if defined in models/index.js
-                attributes: ['id', 'path', 'position']
+        // 1. Fetch or create the specific UserProfile for the requesting user
+        const [userProfile] = await UserProfile.findOrCreate({
+            where: { user_id: userId },
+            defaults: {
+                user_id: userId,
+                last_name_on: false,
+                other_names_on: false,
+                gender_on: true
             }
-        ],
-        order: [
-            [{ model: UserPicture, as: 'pictures' }, 'position', 'ASC']
-        ]
-    });
+        });
 
-    if (!user) {
-        return res.status(404).json({
+        // 2. Fetch User with pictures ordered by position
+        const user = await User.findByPk(userId, {
+            attributes: [
+                'id',
+                'first_name',
+                'last_name',
+                'other_names',
+                'gender',
+                'interested_in',
+                'date_of_birth',
+                'country',
+                'city',
+                'longitude',
+                'latitude'
+            ],
+            include: [
+                {
+                    model: UserPicture,
+                    as: 'pictures',
+                    attributes: ['id', 'path', 'position']
+                }
+            ],
+            order: [
+                [{ model: UserPicture, as: 'pictures' }, 'position', 'ASC']
+            ]
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User profile not found.'
+            });
+        }
+
+        // 3. Format complete profile and user data matching Profile.jsx expectations
+        const responseData = {
+            user: {
+                id: user.id,
+                first_name: user.first_name || '',
+                last_name: user.last_name || '',
+                other_names: user.other_names || '',
+                gender: user.gender || GENDER.MAN,
+                interested_in: user.interested_in || GENDER.WOMEN,
+                date_of_birth: user.date_of_birth || '',
+                country: user.country || '',
+                city: user.city || '',
+                longitude: user.longitude !== null && user.longitude !== undefined ? String(user.longitude) : '',
+                latitude: user.latitude !== null && user.latitude !== undefined ? String(user.latitude) : ''
+            },
+            profile: {
+                bio: userProfile.bio || '',
+                reason_on_app: userProfile.reason_on_app || '',
+                education: userProfile.education || '',
+                relationship_status: userProfile.relationship_status || 'Single',
+                height_cm: userProfile.height_cm ? String(userProfile.height_cm) : '',
+                smoking: userProfile.smoking || 'Never',
+                drinking: userProfile.drinking || 'Socially'
+            },
+            profileVisibility: {
+                last_name_on: Boolean(userProfile.last_name_on),
+                other_names_on: Boolean(userProfile.other_names_on),
+                gender_on: userProfile.gender_on !== undefined ? Boolean(userProfile.gender_on) : true
+            },
+            pictures: (user.pictures || []).map(pic => ({
+                id: pic.id,
+                path: pic.path,
+                image_url: pic.path, // Alias for component compatibility
+                position: pic.position
+            }))
+        };
+
+        return res.status(200).json({
+            success: true,
+            data: responseData
+        });
+
+    } catch (error) {
+        console.error('Error fetching user profile:', error);
+        return res.status(500).json({
             success: false,
-            message: 'User profile not found.'
+            message: 'Failed to retrieve profile data',
+            error: error.message
         });
     }
-
-    // Format and fallback values to cleanly feed your React component state
-    const responseData = {
-        user: {
-            first_name: user.first_name || '',
-            last_name: user.last_name || '',
-            other_names: user.other_names || '',
-            gender: user.gender || GENDER.MAN,
-            interested_in: user.interested_in || GENDER.WOMEN,
-            date_of_birth: user.date_of_birth || '',
-            country: user.country || '',
-            city: user.city || '',
-            longitude: user.longitude !== null ? String(user.longitude) : '',
-            latitude: user.latitude !== null ? String(user.latitude) : ''
-        },
-        profileVisibility: user.profileVisibility || {
-            first_name_on: true,
-            last_name_on: false,
-            other_names_on: false,
-            gender_on: true
-        },
-        pictures: user.pictures || []
-    };
-
-    return res.send({
-        success: true,
-        data: responseData
-    });
-}
+};
 
 exports.getNearbyUsers = async (req, res) => {
     const currentUser = req.user;
@@ -221,12 +251,13 @@ exports.updateProfile = async (req, res) => {
 
         // Parse JSON payloads sent via FormData
         const userData = typeof req.body.user === 'string' ? JSON.parse(req.body.user) : req.body.user;
+        const profileData = typeof req.body.profile === 'string' ? JSON.parse(req.body.profile) : req.body.profile;
         const visibilityData = typeof req.body.visibility === 'string' ? JSON.parse(req.body.visibility) : req.body.visibility;
         const pictureMeta = typeof req.body.pictureMeta === 'string' ? JSON.parse(req.body.pictureMeta) : (req.body.pictureMeta || []);
         const deletedPictureIds = typeof req.body.deletedPictureIds === 'string' ? JSON.parse(req.body.deletedPictureIds) : (req.body.deletedPictureIds || []);
 
         /* -------------------------------------------------------------------------- */
-        /* 1. UPDATE USER DETAILS                                                    */
+        /* 1. UPDATE USER CORE DETAILS                                               */
         /* -------------------------------------------------------------------------- */
         if (userData) {
             await User.update({
@@ -247,17 +278,39 @@ exports.updateProfile = async (req, res) => {
         }
 
         /* -------------------------------------------------------------------------- */
-        /* 2. UPDATE USER PROFILE (VISIBILITY / PREFERENCES)                         */
+        /* 2. UPDATE USER PROFILE (ATTRIBUTES & VISIBILITY)                          */
         /* -------------------------------------------------------------------------- */
+        const profilePayload = {};
+
         if (visibilityData) {
-            await UserProfile.update({
-                last_name_on: Boolean(visibilityData.last_name_on),
-                other_names_on: Boolean(visibilityData.other_names_on),
-                gender_on: Boolean(visibilityData.gender_on)
-            }, {
+            profilePayload.last_name_on = Boolean(visibilityData.last_name_on);
+            profilePayload.other_names_on = Boolean(visibilityData.other_names_on);
+            profilePayload.gender_on = Boolean(visibilityData.gender_on);
+        }
+
+        if (profileData) {
+            if (profileData.bio !== undefined) profilePayload.bio = profileData.bio ? profileData.bio.trim() : null;
+            if (profileData.reason_on_app !== undefined) profilePayload.reason_on_app = profileData.reason_on_app;
+            if (profileData.education !== undefined) profilePayload.education = profileData.education;
+            if (profileData.relationship_status !== undefined) profilePayload.relationship_status = profileData.relationship_status;
+            if (profileData.height_cm !== undefined) profilePayload.height_cm = profileData.height_cm ? parseInt(profileData.height_cm, 10) : null;
+            if (profileData.smoking !== undefined) profilePayload.smoking = profileData.smoking;
+            if (profileData.drinking !== undefined) profilePayload.drinking = profileData.drinking;
+        }
+
+        if (Object.keys(profilePayload).length > 0) {
+            const [existingProfile] = await UserProfile.findOrCreate({
                 where: { user_id: userId },
+                defaults: { user_id: userId, ...profilePayload },
                 transaction
             });
+
+            if (existingProfile) {
+                await UserProfile.update(profilePayload, {
+                    where: { user_id: userId },
+                    transaction
+                });
+            }
         }
 
         /* -------------------------------------------------------------------------- */
@@ -323,7 +376,7 @@ exports.updateProfile = async (req, res) => {
 
                     await UserPicture.create({
                         user_id: userId,
-                        path: relativePath,  // Changed from image_url to path
+                        path: relativePath,
                         position: position
                     }, { transaction });
                 }
@@ -332,7 +385,6 @@ exports.updateProfile = async (req, res) => {
 
         await transaction.commit();
 
-        // Fetch refreshed user state for client confirmation
         const updatedUser = await User.findByPk(userId, {
             include: [
                 { model: UserProfile, as: 'profile' },
@@ -500,9 +552,7 @@ exports.completeProfileSetup = async (req, res) => {
             drinking
         } = req.body;
 
-        // 1. Upsert profile attributes into UserProfile
-        await UserProfile.upsert({
-            user_id: userId,
+        const profilePayload = {
             bio: bio ? bio.trim() : null,
             reason_on_app,
             education,
@@ -510,7 +560,23 @@ exports.completeProfileSetup = async (req, res) => {
             height_cm: height_cm ? parseInt(height_cm, 10) : null,
             smoking: smoking || 'Never',
             drinking: drinking || 'Socially'
+        };
+
+        // 1. Explicitly update the user's existing single UserProfile record
+        const [updatedRows] = await UserProfile.update(profilePayload, {
+            where: { user_id: userId }
         });
+
+        // Fallback: If for any unexpected reason a row wasn't found, ensure one exists
+        if (updatedRows === 0) {
+            await UserProfile.findOrCreate({
+                where: { user_id: userId },
+                defaults: {
+                    user_id: userId,
+                    ...profilePayload
+                }
+            });
+        }
 
         // 2. Mark profile_page_setup flag as true on the main User model
         await User.update(
