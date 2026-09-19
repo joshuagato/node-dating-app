@@ -7,7 +7,7 @@ const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const {
     getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
     setupFinalProfile, getVerificationSelfie, updateProfile,
-    getNearbyUsers, completeProfileSetup
+    getNearbyUsers, completeProfileSetup, getPartnerProfile
 } = require('../controllers/user');
 const {
     validateName, validatePassword, validateConfirmPassword, validateLocation,
@@ -17,6 +17,8 @@ const { upload } = require('../utils/utils');
 
 
 router.get('/profile', IsAuthenticated, getProfile);
+
+router.get('/partner-profile/:id', IsAuthenticated, getPartnerProfile);
 
 router.put('/update-profile', IsAuthenticated, upload.any(), updateProfile);
 
