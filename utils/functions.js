@@ -7,6 +7,8 @@ const { TWENTY_FOUR_HOURS_FROM_NOW } = require('./constants');
 const EmailVerificationRequest = require('../models/EmailVerificationRequest');
 const PasswordResetRequest = require('../models/PasswordResetRequest');
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 
 exports.hashPassword = async password => {
     const salt = await bcrypt.genSalt(10);
@@ -34,18 +36,18 @@ exports.generateTokenForUserId = id => {
 exports.generateCookiesForToken = (res, token) => {
     res.cookie('token', token, {
         maxAge: (24 * 60 * 60 * 1000) * 30,     // 30 days,
-        httpOnly: false,                        // Prevents client-side JS access (XSS protection)
-        secure: false,                          // Forces cookie to be sent over HTTPS only
-        sameSite: 'strict'                      // Mitigates CSRF attacks
+        httpOnly: isProduction,                        // Prevents client-side JS access (XSS protection)
+        secure: isProduction,                          // Forces cookie to be sent over HTTPS only
+        sameSite: isProduction ? 'none' : 'strict'                      // Mitigates CSRF attacks
     });
 }
 
 exports.generateCookiesForCurrentUserId = (res, user_id) => {
     res.cookie('user_id', user_id, {
         maxAge: (24 * 60 * 60 * 1000) * 30,     // 30 days,
-        httpOnly: false,                        // Prevents client-side JS access (XSS protection)
-        secure: false,                          // Forces cookie to be sent over HTTPS only
-        sameSite: 'strict'                      // Mitigates CSRF attacks
+        httpOnly: isProduction,                        // Prevents client-side JS access (XSS protection)
+        secure: isProduction,                          // Forces cookie to be sent over HTTPS only
+        sameSite: isProduction ? 'none' : 'strict'                      // Mitigates CSRF attacks
     });
 }
 
