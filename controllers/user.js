@@ -128,6 +128,123 @@ exports.getProfile = async (req, res) => {
     }
 };
 
+exports.getPartnerProfile = async (req, res) => {
+    try {
+        const { id: userId } = req.params;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'User ID is required'
+            });
+        }
+
+        // Fetch target user with associated UserProfile and UserPictures
+        const user = await User.findByPk(userId, {
+            attributes: [
+                'id',
+                'first_name',
+                'last_name',
+                'other_names',
+                'gender',
+                'interested_in',
+                'date_of_birth',
+                'country',
+                'city',
+                'is_online',
+                'last_seen'
+            ],
+            include: [
+                {
+                    model: UserProfile,
+                    as: 'profile',
+                    attributes: [
+                        'first_name_on',
+                        'last_name_on',
+                        'other_names_on',
+                        'gender_on',
+                        'bio',
+                        'reason_on_app',
+                        'education',
+                        'relationship_status',
+                        'height_cm',
+                        'smoking',
+                        'drinking'
+                    ]
+                },
+                {
+                    model: UserPicture,
+                    as: 'pictures',
+                    attributes: ['id', 'path', 'position']
+                }
+            ],
+            order: [
+                [{ model: UserPicture, as: 'pictures' }, 'position', 'ASC']
+            ]
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'Partner profile not found.'
+            });
+        }
+
+        const profileData = user.profile || {};
+
+        // 1. Format Name based on visibility flags (first_name, last_name, other_names)
+        const nameParts = [];
+        if (profileData.first_name_on !== false && user.first_name) {
+            nameParts.push(user.first_name);
+        }
+        if (profileData.other_names_on && user.other_names) {
+            nameParts.push(user.other_names);
+        }
+        if (profileData.last_name_on && user.last_name) {
+            nameParts.push(user.last_name);
+        }
+
+        const formattedName = nameParts.join(' ').trim() || user.first_name || 'Anonymous';
+
+        // 2. Format Gender conditionally based on gender_on flag
+        const formattedGender = profileData.gender_on ? user.gender : null;
+
+        const responseData = {
+            id: user.id,
+            name: formattedName,
+            gender: formattedGender,
+            date_of_birth: user.date_of_birth,
+            country: user.country || '',
+            city: user.city || '',
+            is_online: user.is_online,
+            last_seen: user.last_seen,
+            profile: {
+                bio: profileData.bio || '',
+                reason_on_app: profileData.reason_on_app || '',
+                education: profileData.education || '',
+                relationship_status: profileData.relationship_status || '',
+                height_cm: profileData.height_cm || null,
+                smoking: profileData.smoking || '',
+                drinking: profileData.drinking || ''
+            },
+            pictures: user.pictures || []
+        };
+
+        return res.status(200).json({
+            success: true,
+            data: responseData
+        });
+
+    } catch (error) {
+        console.error('Error fetching partner profile:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve partner profile',
+            error: error.message
+        });
+    }
+};
+
 exports.getNearbyUsers = async (req, res) => {
     const currentUser = req.user;
     if (!currentUser) {
