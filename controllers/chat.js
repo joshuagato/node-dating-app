@@ -16,7 +16,6 @@ const UserPicture = require('../models/UserPicture');
 const Match = require('../models/Match');
 const Message = require('../models/Message');
 const Chat = require('../models/Chat');
-const ChatParticipant = require('../models/ChatParticipant');
 
 // User -> Chat Associations
 Chat.belongsTo(User, { as: 'chat_initiator', foreignKey: 'initiator_id' });
