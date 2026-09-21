@@ -10,6 +10,7 @@ const { Server } = require('socket.io');
 const { connectPostgreSql } = require('./database/postgresql');
 const { apiRouter } = require('./routes');
 const { initChatSocket, onlineUsers } = require('./sockets/chatSocket');
+const { startExpireSubscriptionsJob } = require('./jobs/expireSubscriptions');
 
 const app = express();
 const router = express.Router();
@@ -69,9 +70,12 @@ app.use('/api', apiRouter);
 
 const port = process.env.PORT || 4001;
 
-server.listen(port, () => {
+server.listen(port, async () => {
     log.magenta(`Running on http://localhost:${port}`);
-    connectPostgreSql();
+    await connectPostgreSql();
+
+    // Only start the cron once the DB is confirmed reachable
+    startExpireSubscriptionsJob();
 });
 
 
