@@ -371,10 +371,9 @@ exports.updateProfile = async (req, res) => {
         const profileData = typeof req.body.profile === 'string' ? JSON.parse(req.body.profile) : req.body.profile;
         const visibilityData = typeof req.body.visibility === 'string' ? JSON.parse(req.body.visibility) : req.body.visibility;
         const pictureMeta = typeof req.body.pictureMeta === 'string' ? JSON.parse(req.body.pictureMeta) : (req.body.pictureMeta || []);
-        const deletedPictureIds = typeof req.body.deletedPictureIds === 'string' ? JSON.parse(req.body.deletedPictureIds) : (req.body.deletedPictureIds || []);
 
         /* -------------------------------------------------------------------------- */
-        /* 1. UPDATE USER CORE DETAILS                                               */
+        /* 1. UPDATE USER CORE DETAILS                                                */
         /* -------------------------------------------------------------------------- */
         if (userData) {
             await User.update({
@@ -385,17 +384,20 @@ exports.updateProfile = async (req, res) => {
                 interested_in: userData.interested_in,
                 date_of_birth: userData.date_of_birth,
                 country: userData.country,
+                country_code: userData.country_code
+                    ? userData.country_code.toLowerCase()
+                    : null,
                 city: userData.city,
                 latitude: userData.latitude,
-                longitude: userData.longitude
+                longitude: userData.longitude,
             }, {
                 where: { id: userId },
-                transaction
+                transaction,
             });
         }
 
         /* -------------------------------------------------------------------------- */
-        /* 2. UPDATE USER PROFILE (ATTRIBUTES & VISIBILITY)                          */
+        /* 2. UPDATE USER PROFILE (ATTRIBUTES & VISIBILITY)                           */
         /* -------------------------------------------------------------------------- */
         const profilePayload = {};
 
@@ -419,69 +421,36 @@ exports.updateProfile = async (req, res) => {
             const [existingProfile] = await UserProfile.findOrCreate({
                 where: { user_id: userId },
                 defaults: { user_id: userId, ...profilePayload },
-                transaction
+                transaction,
             });
 
             if (existingProfile) {
                 await UserProfile.update(profilePayload, {
                     where: { user_id: userId },
-                    transaction
+                    transaction,
                 });
             }
         }
 
         /* -------------------------------------------------------------------------- */
-        /* 3. DELETE REMOVED PICTURES                                               */
+        /* 3. REORDER EXISTING PICTURES (no file I/O)                                 */
         /* -------------------------------------------------------------------------- */
-        if (Array.isArray(deletedPictureIds) && deletedPictureIds.length > 0) {
-            const picsToDelete = await UserPicture.findAll({
-                where: {
-                    id: deletedPictureIds,
-                    user_id: userId
-                },
-                transaction
-            });
-
-            for (const pic of picsToDelete) {
-                if (pic.path) {
-                    const absolutePath = path.resolve(pic.path);
-                    try {
-                        await fs.unlink(absolutePath);
-                    } catch (err) {
-                        console.warn(`File deletion warning for path ${absolutePath}:`, err.message);
-                    }
-                }
-            }
-
-            await UserPicture.destroy({
-                where: {
-                    id: deletedPictureIds,
-                    user_id: userId
-                },
-                transaction
-            });
-        }
-
-        /* -------------------------------------------------------------------------- */
-        /* 4. REORDER EXISTING PICTURES                                              */
-        /* -------------------------------------------------------------------------- */
+        // The client sends the full ordering in `pictureMeta`, so reorder
+        // regardless of whether new files are being uploaded.
         for (const meta of pictureMeta) {
             if (meta.dbId) {
                 await UserPicture.update(
                     { position: meta.position },
                     {
-                        where: {
-                            id: meta.dbId,
-                            user_id: userId
-                        },
-                        transaction
+                        where: { id: meta.dbId, user_id: userId },
+                        transaction,
                     }
                 );
             }
         }
 
         /* -------------------------------------------------------------------------- */
-        /* 5. UPLOAD & INSERT NEW PICTURES                                           */
+        /* 4. UPLOAD & INSERT NEW PICTURES                                            */
         /* -------------------------------------------------------------------------- */
         if (req.files && req.files.length > 0) {
             for (const file of req.files) {
@@ -494,7 +463,7 @@ exports.updateProfile = async (req, res) => {
                     await UserPicture.create({
                         user_id: userId,
                         path: relativePath,
-                        position: position
+                        position,
                     }, { transaction });
                 }
             }
@@ -505,24 +474,22 @@ exports.updateProfile = async (req, res) => {
         const updatedUser = await User.findByPk(userId, {
             include: [
                 { model: UserProfile, as: 'profile' },
-                { model: UserPicture, as: 'pictures' }
-            ]
+                { model: UserPicture, as: 'pictures' },
+            ],
         });
 
         return res.send({
             success: true,
             message: 'Profile updated successfully.',
-            data: updatedUser
+            data: updatedUser,
         });
-
     } catch (error) {
         await transaction.rollback();
         console.error('Profile update error:', error);
-
         return res.status(500).send({
             success: false,
             message: 'Failed to update profile',
-            error: error.message
+            error: error.message,
         });
     }
 };
@@ -560,7 +527,7 @@ exports.setupAdvancedProfile = async (req, res) => {
     if (!result.isEmpty()) return res.send({ errors });
 
     const { id: user_id } = req.user;
-    const { verifiedSelfie, city, country, latitude, longitude } = req.body;
+    const { verifiedSelfie, city, country, country_code, latitude, longitude } = req.body;
 
     let success = false;
     let message = 'User not found.';
@@ -603,6 +570,7 @@ exports.setupAdvancedProfile = async (req, res) => {
     await user.update({
         city,
         country,
+        country_code,
         latitude,
         longitude,
         advanced_profile_setup: true
