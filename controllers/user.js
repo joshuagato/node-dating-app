@@ -494,6 +494,89 @@ exports.updateProfile = async (req, res) => {
     }
 };
 
+exports.deletePicture = async (req, res) => {
+    const transaction = await postgresSequelize.transaction();
+
+    try {
+        const userId = req.user.id;
+        const { id: pictureId } = req.params;
+
+        if (!pictureId) {
+            await transaction.rollback();
+            return res.status(400).json({
+                success: false,
+                message: 'Picture id is required.',
+            });
+        }
+
+        // 1. Find the picture and verify it belongs to this user
+        const picture = await UserPicture.findOne({
+            where: { id: pictureId, user_id: userId },
+            transaction,
+        });
+
+        if (!picture) {
+            await transaction.rollback();
+            return res.status(404).json({
+                success: false,
+                message: 'Picture not found.',
+            });
+        }
+
+        // 2. Delete the row first so the DB state is consistent even if
+        //    the file unlink fails.
+        await picture.destroy({ transaction });
+
+        // 3. Close the gap: any pictures with a position greater than the
+        //    deleted one shift down by 1 so positions stay contiguous.
+        await UserPicture.decrement('position', {
+            by: 1,
+            where: {
+                user_id: userId,
+                position: { [Op.gt]: picture.position },
+            },
+            transaction,
+        });
+
+        await transaction.commit();
+
+        // 4. Best-effort delete of the physical file. Done AFTER commit
+        //    on purpose: if the file system delete throws, the DB is
+        //    already consistent and the orphan file is a cleanup problem,
+        //    not a user-facing one.
+        if (picture.path) {
+            const absolutePath = path.resolve(picture.path);
+            try {
+                await fs.unlink(absolutePath);
+            } catch (err) {
+                console.warn(`File deletion warning for ${absolutePath}:`, err.message);
+                // Don't fail the request — the DB is already updated.
+            }
+        }
+
+        // 5. Return the remaining pictures so the frontend can re-render
+        const remainingPictures = await UserPicture.findAll({
+            where: { user_id: userId },
+            order: [['position', 'ASC']],
+            attributes: ['id', 'path', 'position'],
+        });
+
+        return res.json({
+            success: true,
+            message: 'Picture deleted.',
+            pictures: remainingPictures,
+        });
+    } catch (error) {
+        await transaction.rollback();
+        console.error('deletePicture error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to delete picture.',
+            error: error.message,
+        });
+    }
+};
+
 exports.setupBasicProfile = async (req, res) => {
     const result = validationResult(req);
     const errors = organizeErrors(result.array());
