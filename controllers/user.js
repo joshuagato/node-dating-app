@@ -15,6 +15,7 @@ const UserProfile = require('../models/UserProfile');
 const UserPicture = require('../models/UserPicture');
 const VerificationPicture = require('../models/VerificationPicture');
 const Encounter = require('../models/Encounter');
+const Subscription = require('../models/Subscription');
 
 // User -> UserProfile Associations
 User.hasOne(UserProfile, { foreignKey: 'user_id', as: 'profile' });
@@ -31,18 +32,18 @@ exports.getProfile = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        // 1. Fetch or create the specific UserProfile for the requesting user
+        // 1. Ensure a UserProfile row exists (with sensible defaults)
         const [userProfile] = await UserProfile.findOrCreate({
             where: { user_id: userId },
             defaults: {
                 user_id: userId,
                 last_name_on: false,
                 other_names_on: false,
-                gender_on: true
-            }
+                gender_on: true,
+            },
         });
 
-        // 2. Fetch User with pictures ordered by position
+        // 2. Fetch User + pictures (ordered by position)
         const user = await User.findByPk(userId, {
             attributes: [
                 'id',
@@ -53,30 +54,82 @@ exports.getProfile = async (req, res) => {
                 'interested_in',
                 'date_of_birth',
                 'country',
+                'country_code',
                 'city',
                 'longitude',
-                'latitude'
+                'latitude',
+                'is_premium',
+                'premium_expires_at',
+                'premium_cycle',
             ],
             include: [
                 {
                     model: UserPicture,
                     as: 'pictures',
-                    attributes: ['id', 'path', 'position']
-                }
+                    attributes: ['id', 'path', 'position'],
+                },
             ],
-            order: [
-                [{ model: UserPicture, as: 'pictures' }, 'position', 'ASC']
-            ]
+            order: [[{ model: UserPicture, as: 'pictures' }, 'position', 'ASC']],
         });
 
         if (!user) {
             return res.status(404).json({
                 success: false,
-                message: 'User profile not found.'
+                message: 'User profile not found.',
             });
         }
 
-        // 3. Format complete profile and user data matching Profile.jsx expectations
+        // 3. Fetch the most recent subscription, regardless of status,
+        //    plus the most recent ACTIVE one if it exists. Both are useful
+        //    for the premium banner.
+        const [latestSubscription, activeSubscription] = await Promise.all([
+            Subscription.findOne({
+                where: { user_id: userId },
+                order: [['createdAt', 'DESC']],
+            }),
+            Subscription.findOne({
+                where: { user_id: userId, status: 'active' },
+                order: [['expires_at', 'DESC']],
+            }),
+        ]);
+
+        // 4. Derive premium status.
+        //    A user is considered premium only when BOTH the flag is on AND
+        //    the expiry is in the future. This protects against a stale
+        //    is_premium flag if a webhook failed to revoke.
+        const now = new Date();
+        const expiresAt = user.premium_expires_at
+            ? new Date(user.premium_expires_at)
+            : null;
+        const isPremium = Boolean(
+            user.is_premium && expiresAt && expiresAt > now
+        );
+
+        const daysRemaining = isPremium
+            ? Math.max(
+                0,
+                Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+            )
+            : null;
+
+        // 5. Expired subscription details (if any)
+        let expiredInfo = null;
+        if (!isPremium && latestSubscription && latestSubscription.expires_at) {
+            const lastExpiry = new Date(latestSubscription.expires_at);
+            if (lastExpiry < now) {
+                const daysAgo = Math.max(
+                    0,
+                    Math.floor((now.getTime() - lastExpiry.getTime()) / (1000 * 60 * 60 * 24))
+                );
+                expiredInfo = {
+                    expired_at: lastExpiry.toISOString(),
+                    days_ago: daysAgo,
+                    billing_cycle: latestSubscription.billing_cycle,
+                };
+            }
+        }
+
+        // 6. Build the response
         const responseData = {
             user: {
                 id: user.id,
@@ -87,9 +140,16 @@ exports.getProfile = async (req, res) => {
                 interested_in: user.interested_in || GENDER.WOMEN,
                 date_of_birth: user.date_of_birth || '',
                 country: user.country || '',
+                country_code: user.country_code || '',
                 city: user.city || '',
-                longitude: user.longitude !== null && user.longitude !== undefined ? String(user.longitude) : '',
-                latitude: user.latitude !== null && user.latitude !== undefined ? String(user.latitude) : ''
+                longitude:
+                    user.longitude !== null && user.longitude !== undefined
+                        ? String(user.longitude)
+                        : '',
+                latitude:
+                    user.latitude !== null && user.latitude !== undefined
+                        ? String(user.latitude)
+                        : '',
             },
             profile: {
                 bio: userProfile.bio || '',
@@ -98,32 +158,43 @@ exports.getProfile = async (req, res) => {
                 relationship_status: userProfile.relationship_status || 'Single',
                 height_cm: userProfile.height_cm ? String(userProfile.height_cm) : '',
                 smoking: userProfile.smoking || 'Never',
-                drinking: userProfile.drinking || 'Socially'
+                drinking: userProfile.drinking || 'Socially',
             },
             profileVisibility: {
                 last_name_on: Boolean(userProfile.last_name_on),
                 other_names_on: Boolean(userProfile.other_names_on),
-                gender_on: userProfile.gender_on !== undefined ? Boolean(userProfile.gender_on) : true
+                gender_on:
+                    userProfile.gender_on !== undefined
+                        ? Boolean(userProfile.gender_on)
+                        : true,
             },
-            pictures: (user.pictures || []).map(pic => ({
+            premium: {
+                is_premium: isPremium,
+                expires_at: isPremium ? expiresAt.toISOString() : null,
+                days_remaining: daysRemaining,
+                cycle: isPremium ? user.premium_cycle || null : null,
+                latest_subscription_id: latestSubscription?.id || null,
+                active_subscription_id: activeSubscription?.id || null,
+                expired: expiredInfo,
+            },
+            pictures: (user.pictures || []).map((pic) => ({
                 id: pic.id,
                 path: pic.path,
-                image_url: pic.path, // Alias for component compatibility
-                position: pic.position
-            }))
+                image_url: pic.path,
+                position: pic.position,
+            })),
         };
 
         return res.status(200).json({
             success: true,
-            data: responseData
+            data: responseData,
         });
-
     } catch (error) {
         console.error('Error fetching user profile:', error);
         return res.status(500).json({
             success: false,
             message: 'Failed to retrieve profile data',
-            error: error.message
+            error: error.message,
         });
     }
 };
