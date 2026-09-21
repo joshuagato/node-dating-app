@@ -6,7 +6,7 @@ const multer = require('multer');
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const {
     getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
-    setupFinalProfile, getVerificationSelfie, updateProfile,
+    setupFinalProfile, getVerificationSelfie, updateProfile, deletePicture,
     getNearbyUsers, completeProfileSetup, getPartnerProfile
 } = require('../controllers/user');
 const {
@@ -21,6 +21,8 @@ router.get('/profile', IsAuthenticated, getProfile);
 router.get('/partner-profile/:id', IsAuthenticated, getPartnerProfile);
 
 router.put('/update-profile', IsAuthenticated, upload.any(), updateProfile);
+
+router.delete('/delete-picture/:id', IsAuthenticated, deletePicture);
 
 router.put('/basic-profile',
     validateName('first_name'), validateName('last_name'),
