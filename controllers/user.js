@@ -16,6 +16,7 @@ const UserPicture = require('../models/UserPicture');
 const VerificationPicture = require('../models/VerificationPicture');
 const Encounter = require('../models/Encounter');
 const Subscription = require('../models/Subscription');
+const EncountersFilter = require('../models/EncountersFilter');
 
 // User -> UserProfile Associations
 User.hasOne(UserProfile, { foreignKey: 'user_id', as: 'profile' });
@@ -721,7 +722,6 @@ exports.setupBasicProfile = async (req, res) => {
     if (!result.isEmpty()) return res.send({ errors });
 
     const { id: user_id } = req.user;
-    // const { first_name, last_name } = matchedData(req);
 
     let success = false;
     let message = 'User not found.';
@@ -734,13 +734,37 @@ exports.setupBasicProfile = async (req, res) => {
     req.body.user_id = user_id;
     await UserProfile.create(req.body);
 
+    // ---- Create default EncountersFilter for this user ----
+    // Seed with sensible defaults derived from the profile the user
+    // just submitted (interested_in), plus hardcoded fallbacks for the
+    // rest. We fall back to the user's own interested_in or EVERYONE.
+    const interestedIn = req.body.interested_in || user.interested_in || GENDER.EVERYONE;
+
+    // TODO: When we have enough users, calculate max_age from the user's
+    // own age plus 10. For now, hardcode 100 as a safety net.
+    //
+    // const userAge = calculateAge(user.date_of_birth);
+    // const defaultMaxAge = userAge != null ? userAge + 10 : 100;
+
+    const defaultMaxAge = 100;
+
+    await EncountersFilter.create({
+        user_id,
+        max_distance_km: 200,
+        interested_in: interestedIn,
+        min_age: 18,
+        max_age: defaultMaxAge,
+        online_only: false,
+        premium_only: false,
+    });
+
     const basic_profile_setup = true;
     await user.update({ basic_profile_setup });
 
     message = 'Profile Saved.';
     success = true;
     res.status(200).json({ success, message });
-}
+};
 
 exports.setupAdvancedProfile = async (req, res) => {
     const result = validationResult(req);
