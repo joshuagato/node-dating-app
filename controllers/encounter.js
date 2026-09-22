@@ -425,7 +425,7 @@ exports.getUsersWhoLikeMe = async (req, res) => {
             `),
                 'name'
             ],
-            ['updatedAt', 'liked_at'],
+            ['createdAt', 'liked_at'],
             ['seen_in_users_who_like_me', 'seen'],
             'action',
             [
@@ -484,7 +484,7 @@ exports.getUsersWhoLikeMe = async (req, res) => {
                 ]
             }
         ],
-        order: [['updatedAt', 'DESC']],
+        order: [['createdAt', 'DESC']],
         raw: true
     });
 
@@ -503,6 +503,60 @@ exports.getUsersWhoLikeMe = async (req, res) => {
     let success = true;
     res.send({ success, unseen, likes });
 }
+
+exports.markLikesAsSeen = async (req, res) => {
+    try {
+        const currentUser = req.user;
+        if (!currentUser) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const { id: currentUserId } = currentUser;
+
+        // Accept a single id or an array of ids for flexibility.
+        const raw = req.body?.initiator_ids ?? req.body?.initiator_id;
+        const initiatorIds = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+        if (initiatorIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'At least one initiator_id is required.',
+            });
+        }
+
+        // Only mark rows where:
+        //   - I am the recipient (someone liked ME)
+        //   - the initiator is one of the ids passed in
+        //   - it hasn't already been marked seen (so we don't overwrite the
+        //     original timestamp on repeat calls)
+        const [updated] = await Encounter.update(
+            {
+                seen_in_users_who_like_me: true,
+                seen_in_users_who_like_me_at: new Date(),
+            },
+            {
+                where: {
+                    recipient_id: currentUserId,
+                    initiator_id: { [Op.in]: initiatorIds },
+                    seen_in_users_who_like_me: false,
+                },
+            }
+        );
+
+        return res.json({
+            success: true,
+            updated,
+            initiator_ids: initiatorIds,
+        });
+    } catch (error) {
+        console.error('Error marking likes as seen:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to mark likes as seen',
+            error: error.message,
+        });
+    }
+};
 
 
 exports.dislikeUser = async (req, res) => {
