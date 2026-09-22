@@ -170,7 +170,7 @@ exports.getEncountersProfiles = async (req, res) => {
                             * sin(radians("User"."latitude"))
                         ))
                     )
-                )::numeric, 1
+                )::numeric, 0
             )
         `);
 
@@ -390,7 +390,12 @@ exports.getUsersWhoLikeMe = async (req, res) => {
     const usersAlreadyLikedByMe = await Encounter.findAll({
         where: {
             initiator_id: currentUserId,
-            action: ENCOUNTER_ACTION.LIKE
+            action: {
+                [Op.in]: [
+                    ENCOUNTER_ACTION.LIKE,
+                    ENCOUNTER_ACTION.DISLIKE,
+                ],
+            },
         },
         attributes: ['recipient_id'],
         raw: true
@@ -422,6 +427,7 @@ exports.getUsersWhoLikeMe = async (req, res) => {
             ],
             ['updatedAt', 'liked_at'],
             ['seen_in_users_who_like_me', 'seen'],
+            'action',
             [
                 Sequelize.literal(`
                 DATE_PART('year', AGE(CURRENT_DATE, "initiator"."date_of_birth"))::integer
@@ -454,7 +460,12 @@ exports.getUsersWhoLikeMe = async (req, res) => {
         ],
         where: {
             recipient_id: currentUserId,
-            action: ENCOUNTER_ACTION.LIKE,
+            action: {
+                [Op.in]: [
+                    ENCOUNTER_ACTION.LIKE,
+                    ENCOUNTER_ACTION.SUPER_LIKE,
+                ],
+            },
             initiator_id: {
                 [Op.notIn]: usersAlreadyLikedByMe
             }
@@ -711,7 +722,12 @@ exports.getNewLikesCount = async (req, res) => {
     const usersAlreadyLikedByMe = await Encounter.findAll({
         where: {
             initiator_id: userId,
-            action: ENCOUNTER_ACTION.LIKE
+            action: {
+                [Op.in]: [
+                    ENCOUNTER_ACTION.LIKE,
+                    ENCOUNTER_ACTION.SUPER_LIKE,
+                ],
+            }
         },
         attributes: ['recipient_id'],
         raw: true
@@ -724,7 +740,12 @@ exports.getNewLikesCount = async (req, res) => {
             recipient_id: userId,
             seen_in_users_who_like_me: false,
             seen_in_users_who_like_me_at: null,
-            action: ENCOUNTER_ACTION.LIKE,
+            action: {
+                [Op.in]: [
+                    ENCOUNTER_ACTION.LIKE,
+                    ENCOUNTER_ACTION.SUPER_LIKE,
+                ],
+            },
             initiator_id: {
                 [Op.notIn]: usersAlreadyLikedByMe
             }
