@@ -3,7 +3,8 @@ const router = express.Router();
 
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const { likeUser, dislikeUser, getUsersWhoLikeMe, getUsersWhoDisLikeMe,
-    getUsersDisLikedByMe, getNewLikesCount, getEncountersProfiles
+    getUsersDisLikedByMe, getNewLikesCount, getEncountersProfiles,
+    markLikesAsSeen
 } = require('../controllers/encounter');
 const { validateName, validatePassword, validateConfirmPassword, validateLocation,
     validateCoordinates
@@ -15,6 +16,8 @@ router.get('/get-encounters-profiles', IsAuthenticated, getEncountersProfiles);
 router.post('/like-user', IsAuthenticated, likeUser);
 
 router.post('/dislike-user', IsAuthenticated, dislikeUser);
+
+router.post('/mark-likes-seen', IsAuthenticated, markLikesAsSeen);
 
 router.get('/users-who-like-me', IsAuthenticated, getUsersWhoLikeMe);
 
