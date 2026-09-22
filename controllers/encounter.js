@@ -4,7 +4,7 @@ const moment = require('moment');
 
 const { organizeErrors } = require('../utils/functions');
 const { ENCOUNTER_ACTION, MATCH_STATUS, FREE_DAILY_ENCOUNTER_LIMIT, AD_EVERY_N_CARDS,
-    FREE_DAILY_WINDOW_MS, CHAT_STARTER } = require('../utils/constants');
+    FREE_DAILY_WINDOW_MS, CHAT_STARTER, GENDER } = require('../utils/constants');
 const { getQuota, incrementQuota } = require('../utils/encounterQuota');
 
 const Encounter = require('../models/Encounter');
@@ -14,12 +14,27 @@ const UserProfile = require('../models/UserProfile');
 const UserPicture = require('../models/UserPicture');
 const DailyEncounterView = require('../models/DailyEncounterView');
 const Chat = require('../models/Chat');
+const EncountersFilter = require('../models/EncountersFilter');
 
 User.hasMany(Encounter, { foreignKey: 'initiator_id', as: 'initiatedEncounters' });
 User.hasMany(Encounter, { foreignKey: 'recipient_id', as: 'receivedEncounters' });
 
 Encounter.belongsTo(User, { foreignKey: 'initiator_id', as: 'initiator' });
 Encounter.belongsTo(User, { foreignKey: 'recipient_id', as: 'recipient' });
+
+User.hasOne(EncountersFilter, {
+    foreignKey: 'user_id',
+    as: 'encountersFilter',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+});
+
+EncountersFilter.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+});
 
 function formatMyself(me) {
     if (!me) return null;
@@ -34,6 +49,18 @@ function formatMyself(me) {
         city: plain.city || null,
         is_online: plain.is_online || false,
         last_seen: plain.last_seen || null,
+        interested_in: plain.interested_in,
+        date_of_birth: plain.date_of_birth,
+        filter: plain.encountersFilter
+            ? {
+                max_distance_km: plain.encountersFilter.max_distance_km,
+                interested_in: plain.encountersFilter.interested_in,
+                min_age: plain.encountersFilter.min_age,
+                max_age: plain.encountersFilter.max_age,
+                online_only: plain.encountersFilter.online_only,
+                premium_only: plain.encountersFilter.premium_only,
+            }
+            : null,
     };
 }
 
@@ -58,23 +85,76 @@ exports.getEncountersProfiles = async (req, res) => {
             });
         }
 
-        // ---- 2. Validate & normalise query params ----
-        let maxDistanceKm = Number(req.query.max_distance);
-        if (!Number.isFinite(maxDistanceKm) || maxDistanceKm <= 0) {
-            maxDistanceKm = 11;
+        // ---- 2. Load (or lazily create) the user's filter row ----
+        let filter = await EncountersFilter.findOne({
+            where: { user_id: currentUserId },
+        });
+
+        if (!filter) {
+            // Defensive: if an older account predates EncountersFilter,
+            // create one on the fly using the same defaults.
+            filter = await EncountersFilter.create({
+                user_id: currentUserId,
+                max_distance_km: 200,
+                interested_in:
+                    currentUser.interested_in || GENDER.EVERYONE,
+                min_age: 18,
+                max_age: 100,
+                online_only: false,
+                premium_only: false,
+            });
+        } else {
+            const updates = {
+                max_distance_km: Number(req.query.max_distance),
+                interested_in: req.query.interested_in,
+                min_age: Number(req.query.min_age),
+                max_age: Number(req.query.max_age),
+            };
+
+            // online_only and premium_only are only sent when truthy
+            // (the frontend omits them otherwise), so only override when present.
+            if (req.query.online_only !== undefined) {
+                updates.online_only = parseBool(req.query.online_only) ?? false;
+            }
+            if (req.query.premium_only !== undefined) {
+                updates.premium_only = parseBool(req.query.premium_only) ?? false;
+            }
+
+            await filter.update(updates);
         }
 
-        const requestedLimit = Math.max(
+        // ---- 3. Resolve effective filters ----
+        // Query params (sent by the filter modal) override the stored row
+        // for THIS request only. If nothing is passed, we use the stored
+        // (or default) values.
+        const maxDistanceKm = clamp(
+            Number(req.query.max_distance) || filter.max_distance_km,
             1,
-            Math.min(50, parseInt(req.query.limit, 10) || 20)
-        );
-        const requestedOffset = Math.max(
-            0,
-            parseInt(req.query.offset, 10) || 0
+            500
         );
 
-        // ---- 3. Quota check (READ ONLY — increment happens in like/dislike) ----
+        const interestedIn = req.query.interested_in || filter.interested_in;
+
+        const minAge = clamp(
+            parseInt(req.query.min_age, 10) || filter.min_age,
+            18,
+            100
+        );
+
+        const maxAge = clamp(
+            parseInt(req.query.max_age, 10) || filter.max_age,
+            18,
+            100
+        );
+
+        const onlineOnly =
+            parseBool(req.query.online_only) ?? filter.online_only;
+        const premiumOnly =
+            parseBool(req.query.premium_only) ?? filter.premium_only;
+
+        // ---- 4. Quota check (READ ONLY) ----
         const quota = await getQuota(currentUser);
+        const currentUserIsPremium = quota.isPremium;
 
         const quotaPayload = quota.isPremium
             ? null
@@ -85,10 +165,7 @@ exports.getEncountersProfiles = async (req, res) => {
                 resetsAt: quota.resetsAt,
             };
 
-        // ---- 4. Fetch "myself" separately ----
-        // The main profile query excludes the current user, so we fetch their
-        // own record with its own query. Needed by the frontend for chat
-        // navigation and end-card rendering.
+        // ---- 5. "myself" — now includes premium + filter fields ----
         const myselfPromise = User.findByPk(currentUserId, {
             attributes: [
                 'id',
@@ -106,16 +183,15 @@ exports.getEncountersProfiles = async (req, res) => {
                 ],
                 'gender',
                 'city',
+                'latitude',
+                'longitude',
                 'is_online',
                 'last_seen',
+                'date_of_birth',
+                'interested_in',
             ],
             include: [
-                {
-                    model: UserProfile,
-                    as: 'profile',
-                    attributes: [],
-                    required: false,
-                },
+                { model: UserProfile, as: 'profile', attributes: [], required: false },
                 {
                     model: UserPicture,
                     as: 'pictures',
@@ -124,16 +200,21 @@ exports.getEncountersProfiles = async (req, res) => {
                     separate: true,
                     order: [['position', 'ASC']],
                 },
+                {
+                    model: EncountersFilter,
+                    as: 'encountersFilter',
+                    required: false,
+                },
             ],
         });
 
-        // ---- 5. Short-circuit when quota is exhausted ----
+        // ---- 6. Short-circuit on quota exhaustion ----
         if (!quota.isPremium && quota.exhausted) {
             const me = await myselfPromise;
-
             return res.status(200).json({
                 success: true,
                 myself: formatMyself(me),
+                filter: formatFilter(filter, false, false),
                 users: [],
                 quota: quotaPayload,
                 quotaExhausted: true,
@@ -142,22 +223,20 @@ exports.getEncountersProfiles = async (req, res) => {
             });
         }
 
-        // ---- 6. Cap the effective limit by remaining quota ----
+        // ---- 7. Cap the effective limit by remaining quota ----
+        const requestedLimit = Math.max(
+            1,
+            Math.min(50, parseInt(req.query.limit, 10) || 20)
+        );
+        const requestedOffset = Math.max(
+            0,
+            parseInt(req.query.offset, 10) || 0
+        );
         const effectiveLimit = quota.isPremium
             ? requestedLimit
             : Math.min(requestedLimit, quota.remaining);
 
-        // ---- 7. Profile query ----
-        // Anti-join rule (STRICT ONE-DIRECTIONAL):
-        //   - EXCLUDE any user the current user has already acted on
-        //     (i.e. rows in `initiatedEncounters`).
-        //   - DO NOT exclude users who acted on the current user first
-        //     (`receivedEncounters` is intentionally NOT joined).
-        //
-        // `subQuery: false` is required because the anti-join condition
-        // references the joined alias at the top level. It's safe here
-        // because UserPicture is loaded with `separate: true`, so it can't
-        // multiply the Users rows.
+        // ---- 8. Build WHERE conditions ----
         const distanceLiteral = Sequelize.literal(`
             ROUND(
                 (
@@ -174,29 +253,73 @@ exports.getEncountersProfiles = async (req, res) => {
             )
         `);
 
+        const ageLiteral = Sequelize.literal(`
+            DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
+        `);
+
+        const andConditions = [
+            Sequelize.literal(`
+                (
+                    6371 * acos(
+                        LEAST(1, GREATEST(-1,
+                            cos(radians(:lat))
+                            * cos(radians("User"."latitude"))
+                            * cos(radians("User"."longitude") - radians(:lng))
+                            + sin(radians(:lat))
+                            * sin(radians("User"."latitude"))
+                        ))
+                    )
+                ) <= :maxDistance
+            `),
+            Sequelize.where(ageLiteral, { [Op.gte]: minAge }),
+            Sequelize.where(ageLiteral, { [Op.lte]: maxAge }),
+        ];
+
+        // Gender filter — skip when the user selected EVERYONE.
+        const genderClause = {};
+        if (
+            interestedIn &&
+            interestedIn !== GENDER.EVERYONE &&
+            interestedIn !== GENDER.EVERONE
+        ) {
+            // Map plural "men" → "man" etc., mirroring the nearby controller.
+            genderClause.gender =
+                interestedIn === GENDER.MEN ? GENDER.MAN : GENDER.WOMAN;
+        }
+
+        // Online-only and Premium-only are premium features. Ignore them entirely
+        // for free users, even if they sneak the params into the query string.
+        const onlineClause = {};
+        const premiumClause = {};
+
+        if (currentUserIsPremium) {
+            if (onlineOnly) {
+                onlineClause.is_online = true;
+            }
+            if (premiumOnly) {
+                premiumClause.is_premium = true;
+            }
+        }
+
+        // ---- 9. Profile query ----
         const profilesPromise = User.findAll({
             attributes: [
                 'id',
                 [
                     Sequelize.literal(`
-                CONCAT(
-                    "User"."first_name",
-                    CASE WHEN "profile"."last_name_on" = TRUE
-                         THEN CONCAT(' ', "User"."last_name") ELSE '' END,
-                    CASE WHEN "profile"."other_names_on" = TRUE
-                         THEN CONCAT(' ', "User"."other_names") ELSE '' END
-                )
-            `),
+                        CONCAT(
+                            "User"."first_name",
+                            CASE WHEN "profile"."last_name_on" = TRUE
+                                 THEN CONCAT(' ', "User"."last_name") ELSE '' END,
+                            CASE WHEN "profile"."other_names_on" = TRUE
+                                 THEN CONCAT(' ', "User"."other_names") ELSE '' END
+                        )
+                    `),
                     'name',
                 ],
                 'gender',
                 'city',
-                [
-                    Sequelize.literal(`
-                DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
-            `),
-                    'age',
-                ],
+                [ageLiteral, 'age'],
                 [distanceLiteral, 'distance_from'],
                 'is_online',
                 'last_seen',
@@ -217,39 +340,33 @@ exports.getEncountersProfiles = async (req, res) => {
                     order: [['position', 'ASC']],
                 },
                 {
-                    // LEFT JOIN on encounters where the CANDIDATE is the recipient.
-                    // Combined with the include `where`, this matches encounters
-                    // that I initiated *to this candidate*.
+                    // Anti-join: encounters I initiated toward the candidate.
                     model: Encounter,
-                    as: 'receivedEncounters',     // <-- the candidate's received side
+                    as: 'receivedEncounters',
                     attributes: [],
                     required: false,
-                    where: { initiator_id: currentUserId },   // <-- me as initiator
+                    where: { initiator_id: currentUserId },
                 },
             ],
             where: {
                 id: { [Op.ne]: currentUserId },
                 latitude: { [Op.ne]: null },
                 longitude: { [Op.ne]: null },
-
-                // Anti-join: keep only candidates with NO matching encounter row.
                 '$receivedEncounters.id$': { [Op.is]: null },
-
-                [Op.and]: Sequelize.literal(`
-            (
-                6371 * acos(
-                    LEAST(1, GREATEST(-1,
-                        cos(radians(:lat))
-                        * cos(radians("User"."latitude"))
-                        * cos(radians("User"."longitude") - radians(:lng))
-                        + sin(radians(:lat))
-                        * sin(radians("User"."latitude"))
-                    ))
-                )
-            ) <= :maxDistance
-        `),
+                ...genderClause,
+                ...onlineClause,
+                ...premiumClause,
+                [Op.and]: andConditions,
             },
-            order: [[Sequelize.literal('distance_from'), 'ASC']],
+            // Sort:
+            //   1. Online users first
+            //   2. Among offline, most recently seen first
+            //   3. Then by distance ascending as a tie-breaker
+            order: [
+                ['is_online', 'DESC'],
+                ['last_seen', 'DESC NULLS LAST'],
+                [Sequelize.literal('distance_from'), 'ASC'],
+            ],
             limit: effectiveLimit,
             offset: requestedOffset,
             replacements: { lat, lng, maxDistance: maxDistanceKm },
@@ -258,12 +375,16 @@ exports.getEncountersProfiles = async (req, res) => {
 
         const [me, users] = await Promise.all([myselfPromise, profilesPromise]);
 
-        // ---- 8. Respond (no quota increment here) ----
+        const effectiveOnlineOnly = currentUserIsPremium ? onlineOnly : false;
+        const effectivePremiumOnly = currentUserIsPremium ? premiumOnly : false;
+
+        // ---- 10. Respond ----
         return res.json({
             success: true,
             myself: formatMyself(me),
+            filter: formatFilter(filter, effectiveOnlineOnly, effectivePremiumOnly),
             users,
-            quota: quotaPayload,        // null for premium
+            quota: quotaPayload,
             quotaExhausted: false,
             adEveryN: AD_EVERY_N_CARDS,
         });
@@ -276,6 +397,46 @@ exports.getEncountersProfiles = async (req, res) => {
         });
     }
 };
+
+/* ---------------------------------------------------------------- */
+/* Helpers                                                          */
+/* ---------------------------------------------------------------- */
+function clamp(n, min, max) {
+    if (!Number.isFinite(n)) return min;
+    return Math.max(min, Math.min(max, n));
+}
+
+function parseBool(v) {
+    if (v === undefined || v === null || v === '') return null;
+    if (typeof v === 'boolean') return v;
+    const s = String(v).toLowerCase();
+    if (s === 'true' || s === '1') return true;
+    if (s === 'false' || s === '0') return false;
+    return null;
+}
+
+function formatFilter(filter, effectiveOnlineOnly, effectivePremiumOnly) {
+    if (!filter) return null;
+    return {
+        max_distance_km: filter.max_distance_km,
+        interested_in: filter.interested_in,
+        min_age: filter.min_age,
+        max_age: filter.max_age,
+        online_only: effectiveOnlineOnly,
+        premium_only: effectivePremiumOnly,
+    };
+}
+
+// TODO: When we start deriving max_age dynamically, uncomment this and
+// remove the hardcoded 100 in setupBasicProfile.
+//
+// function calculateAge(dob) {
+//     if (!dob) return null;
+//     const d = new Date(dob);
+//     if (Number.isNaN(d.getTime())) return null;
+//     const diff = Date.now() - d.getTime();
+//     return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
+// }
 
 
 exports.likeUser = async (req, res) => {
