@@ -7,7 +7,7 @@ const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const {
     getProfile, setupBasicProfile, setupAdvancedProfile, getPotentialMatchProfiles,
     setupFinalProfile, getVerificationSelfie, updateProfile, deletePicture,
-    getNearbyUsers, completeProfileSetup, getPartnerProfile
+    getNearbyUsers, completeProfileSetup, getPartnerProfile, getPremiumStatus
 } = require('../controllers/user');
 const {
     validateName, validatePassword, validateConfirmPassword, validateLocation,
@@ -23,6 +23,8 @@ router.get('/partner-profile/:id', IsAuthenticated, getPartnerProfile);
 router.put('/update-profile', IsAuthenticated, upload.any(), updateProfile);
 
 router.delete('/delete-picture/:id', IsAuthenticated, deletePicture);
+
+router.get('/premium-status', IsAuthenticated, getPremiumStatus);
 
 router.put('/basic-profile',
     validateName('first_name'), validateName('last_name'),
