@@ -360,7 +360,7 @@ exports.getNearbyUsers = async (req, res) => {
     }
 
     // 3. Radius filter (Set to 20 km or your desired max distance)
-    const MAX_RADIUS_KM = 20;
+    const MAX_RADIUS_KM = 200;
     const distanceCondition = Sequelize.where(distanceLiteral, Op.lte, MAX_RADIUS_KM);
 
     // 4. Query execution
@@ -368,7 +368,22 @@ exports.getNearbyUsers = async (req, res) => {
         where: {
             [Op.and]: [
                 whereClause,
-                distanceCondition
+                distanceCondition,
+
+                // Anti-join: exclude any candidate the current user has
+                // already acted on (i.e. rows in `encounters` where the
+                // current user is the initiator).
+                //
+                // `receivedEncounters` is the candidate's received side of
+                // the Encounter association. By constraining it to
+                // `initiator_id = userId`, this join matches encounters
+                // *I* initiated toward this candidate. The `IS NULL` check
+                // below keeps only candidates with NO such row.
+                //
+                // This is strictly one-directional — it does NOT exclude
+                // users who acted on me first. They still appear so I can
+                // like them back and trigger a match.
+                { '$receivedEncounters.id$': { [Op.is]: null } }
             ]
         },
         attributes: {
@@ -388,10 +403,21 @@ exports.getNearbyUsers = async (req, res) => {
                 as: 'pictures',
                 required: false,
                 attributes: ['id', 'path', 'position']
-            }
+            },
+            {
+                // LEFT JOIN on encounters where the CANDIDATE is the recipient.
+                // Combined with the include `where`, this matches encounters
+                // that I initiated *to this candidate*.
+                model: Encounter,
+                as: 'receivedEncounters',     // <-- the candidate's received side
+                attributes: [],
+                required: false,
+                where: { initiator_id: userId },   // <-- me as initiator
+            },
         ],
         // Mandatory when using limit + includes with custom WHERE clauses:
         subQuery: false,
+        // Shortest distance first, longest last.
         order: [[distanceLiteral, 'ASC']],
         limit: 12
     });
@@ -643,6 +669,47 @@ exports.deletePicture = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to delete picture.',
+            error: error.message,
+        });
+    }
+};
+
+exports.getPremiumStatus = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const user = await User.findByPk(userId, {
+            attributes: ['id', 'is_premium', 'premium_expires_at'],
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found.',
+            });
+        }
+
+        const now = new Date();
+        const expiresAt = user.premium_expires_at
+            ? new Date(user.premium_expires_at)
+            : null;
+
+        const isPremium = Boolean(
+            user.is_premium &&
+            expiresAt &&
+            expiresAt > now
+        );
+
+        return res.json({
+            success: true,
+            id: user.id,
+            is_premium: isPremium,
+        });
+    } catch (error) {
+        console.error('getPremiumStatus error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch premium status.',
             error: error.message,
         });
     }
