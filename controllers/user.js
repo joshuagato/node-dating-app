@@ -9,6 +9,7 @@ const {
     organizeErrors, deleteUserFields, getRawFile, calculateAge, getDisplayName
 } = require('../utils/functions');
 const { GENDER } = require('../utils/constants');
+const cloudinary = require('../config/cloudinary.js');
 
 const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
@@ -784,25 +785,46 @@ exports.setupAdvancedProfile = async (req, res) => {
     let savedImagePath = null;
 
     if (verifiedSelfie) {
-        // Ensure target upload directory exists
-        const uploadDir = path.join(__dirname, '../uploads/verification-pictures');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
+        const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
+
+        if (platform === 'render') {
+            // Option A: Upload directly to Cloudinary
+            // Cloudinary's uploader accept Data URIs directly (e.g. data:image/jpeg;base64,...)
+            const uploadResult = await cloudinary.uploader.upload(verifiedSelfie, {
+                folder: 'crushr/verification-pictures',
+                resource_type: 'image'
+            });
+
+            // Store Cloudinary's secure URL in DB
+            savedImagePath = uploadResult.secure_url;
+
+        } else if (platform === 'vps') {
+            // Option B: Save to local disk
+            const uploadDir = path.join(__dirname, '../uploads/verification-pictures');
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+
+            // Extract binary data from Base64 Data URI
+            const base64Data = verifiedSelfie.replace(/^data:image\/\w+;base64,/, '');
+            const buffer = Buffer.from(base64Data, 'base64');
+
+            // Generate a unique filename
+            const fileName = `selfie-${user_id}-${Date.now()}.jpg`;
+            const absolutePath = path.join(uploadDir, fileName);
+
+            // Write image to server disk
+            await fs.promises.writeFile(absolutePath, buffer);
+
+            // Relative web path for storage in DB
+            savedImagePath = `/uploads/verification-pictures/${fileName}`;
+
+        } else {
+            return res.status(500).json({
+                success: false,
+                message: 'Invalid or missing HOSTING_PLATFORM configuration.'
+            });
         }
-
-        // Extract binary data from Base64 Data URI
-        const base64Data = verifiedSelfie.replace(/^data:image\/\w+;base64,/, '');
-        const buffer = Buffer.from(base64Data, 'base64');
-
-        // Generate a unique filename
-        const fileName = `selfie-${user_id}-${Date.now()}.jpg`;
-        const absolutePath = path.join(uploadDir, fileName);
-
-        // Write image to server disk
-        await fs.promises.writeFile(absolutePath, buffer);
-
-        // Relative web path for storage in DB
-        savedImagePath = `/uploads/verification-pictures/${fileName}`;
 
         // Create record in VerificationPicture table
         await VerificationPicture.create({
