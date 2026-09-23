@@ -9,7 +9,7 @@ const { postgresSequelize } = require('../database/postgresql');
 const {
     organizeErrors, deleteUserFields, getRawFile, calculateAge, getDisplayName
 } = require('../utils/functions');
-const { GENDER } = require('../utils/constants');
+const { GENDER, cloudFactorPath } = require('../utils/constants');
 const cloudinary = require('../config/cloudinary.js');
 
 const User = require('../models/User');
@@ -553,16 +553,44 @@ exports.updateProfile = async (req, res) => {
         /* 4. UPLOAD & INSERT NEW PICTURES                                            */
         /* -------------------------------------------------------------------------- */
         if (req.files && req.files.length > 0) {
+            const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
+
             for (const file of req.files) {
                 const slotMatch = file.fieldname.match(/picture_slot_(\d+)/);
                 const position = slotMatch ? parseInt(slotMatch[1], 10) : null;
 
                 if (position) {
-                    const relativePath = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
+                    let imagePath = null;
+
+                    if (platform === 'render') {
+                        // Option A: Upload memory buffer to Cloudinary
+                        const uploadResult = await new Promise((resolve, reject) => {
+                            const stream = cloudinary.uploader.upload_stream(
+                                {
+                                    folder: 'crushr/user-pictures',
+                                    resource_type: 'image',
+                                },
+                                (error, result) => {
+                                    if (error) return reject(error);
+                                    resolve(result);
+                                }
+                            );
+                            stream.end(file.buffer);
+                        });
+
+                        imagePath = uploadResult.secure_url;
+
+                    } else if (platform === 'vps') {
+                        // Option B: Relative disk path
+                        imagePath = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
+
+                    } else {
+                        throw new Error('Invalid or missing HOSTING_PLATFORM environment variable.');
+                    }
 
                     await UserPicture.create({
                         user_id: userId,
-                        path: relativePath,
+                        path: imagePath,
                         position,
                     }, { transaction });
                 }
@@ -645,12 +673,29 @@ exports.deletePicture = async (req, res) => {
         //    already consistent and the orphan file is a cleanup problem,
         //    not a user-facing one.
         if (picture.path) {
-            const absolutePath = path.resolve(picture.path);
-            try {
-                await fs.unlink(absolutePath);
-            } catch (err) {
-                console.warn(`File deletion warning for ${absolutePath}:`, err.message);
-                // Don't fail the request — the DB is already updated.
+            if (picture.path.includes(cloudFactorPath)) {
+                // Option A: Delete from Cloudinary
+                try {
+                    // Extract public_id from Cloudinary URL (e.g. "folder/filename" before extension)
+                    const urlParts = picture.path.split('/');
+                    const fileNameWithExt = urlParts.pop(); // "sample.jpg"
+                    const folderName = urlParts.pop();      // "user-pictures"
+                    const publicId = `${folderName}/${fileNameWithExt.split('.')[0]}`; // "user-pictures/sample"
+
+                    await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+                } catch (err) {
+                    console.warn(`Cloudinary deletion warning for ${picture.path}:`, err.message);
+                    // Don't fail the request — the DB record can still be processed.
+                }
+            } else {
+                // Option B: Delete from local disk (existing code)
+                const absolutePath = path.resolve(picture.path);
+                try {
+                    await fs.promises.unlink(absolutePath);
+                } catch (err) {
+                    console.warn(`File deletion warning for ${absolutePath}:`, err.message);
+                    // Don't fail the request — the DB is already updated.
+                }
             }
         }
 
@@ -1183,7 +1228,7 @@ exports.getVerificationSelfie = async (req, res) => {
         const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
         let base64Image = '';
 
-        if (platform === 'render') {
+        if (verificationPicture.path.includes(cloudFactorPath)) {
             // Option A: Read from Cloudinary URL saved in verificationPicture.path
             const imageUrl = verificationPicture.path;
 
@@ -1193,7 +1238,7 @@ exports.getVerificationSelfie = async (req, res) => {
 
             base64Image = Buffer.from(response.data, 'binary').toString('base64');
 
-        } else if (platform === 'vps') {
+        } else if (!verificationPicture.path.includes(cloudFactorPath)) {
             // Option B: Read from local file system (existing code)
             const filePath = path.join(__dirname, '..', verificationPicture.path);
             const imageBuffer = await fs.promises.readFile(filePath);
