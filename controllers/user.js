@@ -864,22 +864,54 @@ exports.setupFinalProfile = async (req, res) => {
         return res.send({ success, message });
     }
 
+    const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
+
     // Normalize imagesBody into an array
     const bodies = Array.isArray(imagesBody) ? imagesBody : [imagesBody];
 
-    // Use a standard for...of loop to handle async database creation cleanly
     for (let i = 0; i < bodies.length; i++) {
         const { position } = JSON.parse(bodies[i]);
-        // Get the corresponding uploaded file from Multer's array
         const rawFile = rawFiles[i];
 
-        if (rawFile) {
-            await UserPicture.create({
-                user_id,
-                position,
-                path: rawFile.path // Use Multer's auto-generated file path
+        if (!rawFile) continue;
+
+        let imagePath = null;
+
+        if (platform === 'render') {
+            // Option A: Upload memory buffer directly to Cloudinary
+            const uploadResult = await new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    {
+                        folder: 'crushr/user-pictures',
+                        resource_type: 'image',
+                    },
+                    (error, result) => {
+                        if (error) return reject(error);
+                        resolve(result);
+                    }
+                );
+                stream.end(rawFile.buffer);
+            });
+
+            imagePath = uploadResult.secure_url;
+
+        } else if (platform === 'vps') {
+            // Option B: Use Multer's disk storage path
+            imagePath = rawFile.path;
+
+        } else {
+            return res.status(500).json({
+                success: false,
+                message: 'Invalid or missing HOSTING_PLATFORM configuration.'
             });
         }
+
+        // Create record in UserPicture table
+        await UserPicture.create({
+            user_id,
+            position,
+            path: imagePath
+        });
     }
 
     message = 'Pictures saved';
