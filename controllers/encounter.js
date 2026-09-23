@@ -51,25 +51,32 @@ function formatMyself(me) {
         last_seen: plain.last_seen || null,
         interested_in: plain.interested_in,
         date_of_birth: plain.date_of_birth,
-        filter: plain.encountersFilter
-            ? {
-                max_distance_km: plain.encountersFilter.max_distance_km,
-                interested_in: plain.encountersFilter.interested_in,
-                min_age: plain.encountersFilter.min_age,
-                max_age: plain.encountersFilter.max_age,
-                online_only: plain.encountersFilter.online_only,
-                premium_only: plain.encountersFilter.premium_only,
-            }
-            : null,
     };
 }
 
+// controllers/encounter.js — getEncountersProfiles (read-only)
+// plus saveEncountersFilter (new)
+
+/**
+ * GET /encounters
+ *
+ * Read-only endpoint. Returns:
+ *   - the user's stored filter row (creating it lazily if missing)
+ *   - the users that match that filter
+ *   - quota info
+ *   - "myself" for chat navigation
+ *
+ * This endpoint NEVER mutates the filter row. All filter persistence
+ * happens in `saveEncountersFilter` (PUT /encounters/filter).
+ */
 exports.getEncountersProfiles = async (req, res) => {
     try {
         // ---- 0. Auth ----
         const currentUser = req.user;
         if (!currentUser) {
-            return res.status(401).json({ success: false, message: 'Unauthorized' });
+            return res
+                .status(401)
+                .json({ success: false, message: 'Unauthorized' });
         }
 
         const { id: currentUserId } = currentUser;
@@ -81,18 +88,18 @@ exports.getEncountersProfiles = async (req, res) => {
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
             return res.status(400).json({
                 success: false,
-                message: 'Your location is not set. Please update your profile location.',
+                message:
+                    'Your location is not set. Please update your profile location.',
             });
         }
 
         // ---- 2. Load (or lazily create) the user's filter row ----
+        // No req.query parsing here — the filter is server-owned.
         let filter = await EncountersFilter.findOne({
             where: { user_id: currentUserId },
         });
 
         if (!filter) {
-            // Defensive: if an older account predates EncountersFilter,
-            // create one on the fly using the same defaults.
             filter = await EncountersFilter.create({
                 user_id: currentUserId,
                 max_distance_km: 200,
@@ -103,56 +110,9 @@ exports.getEncountersProfiles = async (req, res) => {
                 online_only: false,
                 premium_only: false,
             });
-        } else {
-            const updates = {
-                max_distance_km: Number(req.query.max_distance),
-                interested_in: req.query.interested_in,
-                min_age: Number(req.query.min_age),
-                max_age: Number(req.query.max_age),
-            };
-
-            // online_only and premium_only are only sent when truthy
-            // (the frontend omits them otherwise), so only override when present.
-            if (req.query.online_only !== undefined) {
-                updates.online_only = parseBool(req.query.online_only) ?? false;
-            }
-            if (req.query.premium_only !== undefined) {
-                updates.premium_only = parseBool(req.query.premium_only) ?? false;
-            }
-
-            await filter.update(updates);
         }
 
-        // ---- 3. Resolve effective filters ----
-        // Query params (sent by the filter modal) override the stored row
-        // for THIS request only. If nothing is passed, we use the stored
-        // (or default) values.
-        const maxDistanceKm = clamp(
-            Number(req.query.max_distance) || filter.max_distance_km,
-            1,
-            500
-        );
-
-        const interestedIn = req.query.interested_in || filter.interested_in;
-
-        const minAge = clamp(
-            parseInt(req.query.min_age, 10) || filter.min_age,
-            18,
-            100
-        );
-
-        const maxAge = clamp(
-            parseInt(req.query.max_age, 10) || filter.max_age,
-            18,
-            100
-        );
-
-        const onlineOnly =
-            parseBool(req.query.online_only) ?? filter.online_only;
-        const premiumOnly =
-            parseBool(req.query.premium_only) ?? filter.premium_only;
-
-        // ---- 4. Quota check (READ ONLY) ----
+        // ---- 3. Quota check (READ ONLY) ----
         const quota = await getQuota(currentUser);
         const currentUserIsPremium = quota.isPremium;
 
@@ -165,7 +125,7 @@ exports.getEncountersProfiles = async (req, res) => {
                 resetsAt: quota.resetsAt,
             };
 
-        // ---- 5. "myself" — now includes premium + filter fields ----
+        // ---- 4. "myself" — user + filter + pictures ----
         const myselfPromise = User.findByPk(currentUserId, {
             attributes: [
                 'id',
@@ -191,7 +151,12 @@ exports.getEncountersProfiles = async (req, res) => {
                 'interested_in',
             ],
             include: [
-                { model: UserProfile, as: 'profile', attributes: [], required: false },
+                {
+                    model: UserProfile,
+                    as: 'profile',
+                    attributes: [],
+                    required: false,
+                },
                 {
                     model: UserPicture,
                     as: 'pictures',
@@ -208,13 +173,13 @@ exports.getEncountersProfiles = async (req, res) => {
             ],
         });
 
-        // ---- 6. Short-circuit on quota exhaustion ----
+        // ---- 5. Short-circuit on quota exhaustion ----
         if (!quota.isPremium && quota.exhausted) {
             const me = await myselfPromise;
             return res.status(200).json({
                 success: true,
                 myself: formatMyself(me),
-                filter: formatFilter(filter, false, false),
+                filter: formatFilter(filter, currentUserIsPremium),
                 users: [],
                 quota: quotaPayload,
                 quotaExhausted: true,
@@ -223,7 +188,7 @@ exports.getEncountersProfiles = async (req, res) => {
             });
         }
 
-        // ---- 7. Cap the effective limit by remaining quota ----
+        // ---- 6. Cap effective limit by remaining quota ----
         const requestedLimit = Math.max(
             1,
             Math.min(50, parseInt(req.query.limit, 10) || 20)
@@ -236,7 +201,20 @@ exports.getEncountersProfiles = async (req, res) => {
             ? requestedLimit
             : Math.min(requestedLimit, quota.remaining);
 
-        // ---- 8. Build WHERE conditions ----
+        // ---- 7. Build WHERE conditions ----
+        // Every filter value now comes from `filter` (the persisted row),
+        // not from req.query.
+        const maxDistanceKm = filter.max_distance_km;
+        const interestedIn = filter.interested_in;
+        const minAge = filter.min_age;
+        const maxAge = filter.max_age;
+        const onlineOnly = currentUserIsPremium
+            ? filter.online_only
+            : false;
+        const premiumOnly = currentUserIsPremium
+            ? filter.premium_only
+            : false;
+
         const distanceLiteral = Sequelize.literal(`
             ROUND(
                 (
@@ -275,33 +253,24 @@ exports.getEncountersProfiles = async (req, res) => {
             Sequelize.where(ageLiteral, { [Op.lte]: maxAge }),
         ];
 
-        // Gender filter — skip when the user selected EVERYONE.
         const genderClause = {};
         if (
             interestedIn &&
             interestedIn !== GENDER.EVERYONE &&
             interestedIn !== GENDER.EVERONE
         ) {
-            // Map plural "men" → "man" etc., mirroring the nearby controller.
             genderClause.gender =
                 interestedIn === GENDER.MEN ? GENDER.MAN : GENDER.WOMAN;
         }
 
-        // Online-only and Premium-only are premium features. Ignore them entirely
-        // for free users, even if they sneak the params into the query string.
         const onlineClause = {};
         const premiumClause = {};
-
         if (currentUserIsPremium) {
-            if (onlineOnly) {
-                onlineClause.is_online = true;
-            }
-            if (premiumOnly) {
-                premiumClause.is_premium = true;
-            }
+            if (onlineOnly) onlineClause.is_online = true;
+            if (premiumOnly) premiumClause.is_premium = true;
         }
 
-        // ---- 9. Profile query ----
+        // ---- 8. Profile query ----
         const profilesPromise = User.findAll({
             attributes: [
                 'id',
@@ -340,7 +309,6 @@ exports.getEncountersProfiles = async (req, res) => {
                     order: [['position', 'ASC']],
                 },
                 {
-                    // Anti-join: encounters I initiated toward the candidate.
                     model: Encounter,
                     as: 'receivedEncounters',
                     attributes: [],
@@ -358,10 +326,6 @@ exports.getEncountersProfiles = async (req, res) => {
                 ...premiumClause,
                 [Op.and]: andConditions,
             },
-            // Sort:
-            //   1. Online users first
-            //   2. Among offline, most recently seen first
-            //   3. Then by distance ascending as a tie-breaker
             order: [
                 ['is_online', 'DESC'],
                 ['last_seen', 'DESC NULLS LAST'],
@@ -373,16 +337,16 @@ exports.getEncountersProfiles = async (req, res) => {
             subQuery: false,
         });
 
-        const [me, users] = await Promise.all([myselfPromise, profilesPromise]);
+        const [me, users] = await Promise.all([
+            myselfPromise,
+            profilesPromise,
+        ]);
 
-        const effectiveOnlineOnly = currentUserIsPremium ? onlineOnly : false;
-        const effectivePremiumOnly = currentUserIsPremium ? premiumOnly : false;
-
-        // ---- 10. Respond ----
+        // ---- 9. Respond ----
         return res.json({
             success: true,
             myself: formatMyself(me),
-            filter: formatFilter(filter, effectiveOnlineOnly, effectivePremiumOnly),
+            filter: formatFilter(filter, currentUserIsPremium),
             users,
             quota: quotaPayload,
             quotaExhausted: false,
@@ -393,6 +357,92 @@ exports.getEncountersProfiles = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to fetch encounter profiles',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * PUT /encounters/filter
+ *
+ * Persists the current user's encounters filter. This is the ONLY
+ * endpoint that writes to EncountersFilter. Called explicitly by the
+ * frontend when the user taps "Apply Filters" in the modal.
+ *
+ * Body: { max_distance_km, interested_in, min_age, max_age, online_only, premium_only }
+ */
+exports.saveEncountersFilter = async (req, res) => {
+    try {
+        const currentUser = req.user;
+        if (!currentUser) {
+            return res
+                .status(401)
+                .json({ success: false, message: 'Unauthorized' });
+        }
+
+        const { id: currentUserId } = currentUser;
+
+        // ---- 1. Validate body ----
+        const body = req.body || {};
+
+        const maxDistanceKm = clamp(
+            Number(body.max_distance_km),
+            1,
+            500
+        );
+        const minAge = clamp(parseInt(body.min_age, 10), 18, 100);
+        const maxAge = clamp(parseInt(body.max_age, 10), 18, 100);
+
+        const validGenders = Object.values(GENDER);
+        const interestedIn = validGenders.includes(body.interested_in)
+            ? body.interested_in
+            : currentUser.interested_in || GENDER.EVERYONE;
+
+        // Keep min <= max if the client sent an inverted range.
+        const [safeMinAge, safeMaxAge] =
+            minAge <= maxAge ? [minAge, maxAge] : [maxAge, minAge];
+
+        const onlineOnly = parseBool(body.online_only) ?? false;
+        const premiumOnly = parseBool(body.premium_only) ?? false;
+
+        // ---- 2. Upsert the row ----
+        let filter = await EncountersFilter.findOne({
+            where: { user_id: currentUserId },
+        });
+
+        const values = {
+            max_distance_km: maxDistanceKm,
+            interested_in: interestedIn,
+            min_age: safeMinAge,
+            max_age: safeMaxAge,
+            online_only: onlineOnly,
+            premium_only: premiumOnly,
+        };
+
+        if (!filter) {
+            filter = await EncountersFilter.create({
+                user_id: currentUserId,
+                ...values,
+            });
+        } else {
+            await filter.update(values);
+        }
+
+        // ---- 3. Respond with the persisted state ----
+        // Determine premium status so we can echo the effective values the
+        // server will actually apply (free users can't use the toggles).
+        const quota = await getQuota(currentUser);
+        const currentUserIsPremium = quota.isPremium;
+
+        return res.json({
+            success: true,
+            filter: formatFilter(filter, currentUserIsPremium),
+        });
+    } catch (error) {
+        console.error('Error saving encounters filter:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to save encounters filter',
             error: error.message,
         });
     }
@@ -415,15 +465,21 @@ function parseBool(v) {
     return null;
 }
 
-function formatFilter(filter, effectiveOnlineOnly, effectivePremiumOnly) {
+/**
+ * Format the filter row for the response.
+ *
+ * For free users, the toggles are forced to `false` regardless of what's
+ * stored, so the frontend renders the locked state consistently.
+ */
+function formatFilter(filter, isPremium) {
     if (!filter) return null;
     return {
         max_distance_km: filter.max_distance_km,
         interested_in: filter.interested_in,
         min_age: filter.min_age,
         max_age: filter.max_age,
-        online_only: effectiveOnlineOnly,
-        premium_only: effectivePremiumOnly,
+        online_only: isPremium ? filter.online_only : false,
+        premium_only: isPremium ? filter.premium_only : false,
     };
 }
 
