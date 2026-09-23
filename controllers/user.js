@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 const bcrypt = require('bcryptjs');
 const { validationResult, matchedData } = require('express-validator');
 const { Sequelize, Op, literal, where: seqWhere } = require('sequelize');
@@ -1147,11 +1148,31 @@ exports.getVerificationSelfie = async (req, res) => {
             });
         }
 
-        // Read the file and convert to base64
-        const filePath = path.join(__dirname, '..', verificationPicture.path);
-        // console.log({ filePath })
-        const imageBuffer = await fs.promises.readFile(filePath);
-        const base64Image = imageBuffer.toString('base64');
+        const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
+        let base64Image = '';
+
+        if (platform === 'render') {
+            // Option A: Read from Cloudinary URL saved in verificationPicture.path
+            const imageUrl = verificationPicture.path;
+
+            const response = await axios.get(imageUrl, {
+                responseType: 'arraybuffer'
+            });
+
+            base64Image = Buffer.from(response.data, 'binary').toString('base64');
+
+        } else if (platform === 'vps') {
+            // Option B: Read from local file system (existing code)
+            const filePath = path.join(__dirname, '..', verificationPicture.path);
+            const imageBuffer = await fs.promises.readFile(filePath);
+            base64Image = imageBuffer.toString('base64');
+
+        } else {
+            return res.status(500).json({
+                success: false,
+                message: 'Invalid or missing HOSTING_PLATFORM configuration.'
+            });
+        }
 
         res.json({
             success: true,
