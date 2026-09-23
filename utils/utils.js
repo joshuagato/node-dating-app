@@ -16,10 +16,21 @@ const pictureUpload = multer({ storage: picturesStorage });
 
 
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/pictures/'),
-    filename: (req, file, cb) => cb(null, req.user.id + '-' + Date.now() + path.extname(file.originalname)),
-});
+const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
+
+// Choose storage strategy based on hosting platform
+let storage;
+
+if (platform === 'vps') {
+    storage = multer.diskStorage({
+        destination: (req, file, cb) => cb(null, 'uploads/pictures/'),
+        filename: (req, file, cb) => cb(null, req.user.id + '-' + Date.now() + path.extname(file.originalname)),
+    });
+} else {
+    // Default or 'render': Store in memory buffer for Cloudinary upload
+    storage = multer.memoryStorage();
+}
+
 const upload = multer({ storage });
 
 
