@@ -110,6 +110,7 @@ exports.googleAuth = async (req, res) => {
             basic_profile_setup: user.basic_profile_setup,
             advanced_profile_setup: user.advanced_profile_setup,
             final_profile_setup: user.final_profile_setup,
+            profile_page_setup: user.profile_page_setup,
         });
 
     } catch (error) {
@@ -181,13 +182,15 @@ exports.login = async (req, res) => {
     generateCookiesForCurrentUserId(res, user_id);
 
     success = true;
-    const basic_profile_setup = user.basic_profile_setup;
     const email_verified = user.email_verified;
+    const basic_profile_setup = user.basic_profile_setup;
     const advanced_profile_setup = user.advanced_profile_setup;
     const final_profile_setup = user.final_profile_setup;
+    const profile_page_setup = user.profile_page_setup;
 
     res.status(200).json({
-        success, message, user_id, email_verified, basic_profile_setup, advanced_profile_setup, final_profile_setup
+        success, message, user_id, email_verified, basic_profile_setup,
+        advanced_profile_setup, final_profile_setup, profile_page_setup
     });
 }
 
