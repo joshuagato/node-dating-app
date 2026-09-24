@@ -3,9 +3,11 @@ const router = express.Router();
 
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const { login, signup, profile, verifyEmail, requestPasswordReset, confirmPasswordReset,
-    resetPassword, googleAuth
+    resetPassword, googleAuth, getSetupStatus
 } = require('../controllers/auth');
 const { validateEmail, validatePassword, validateConfirmPassword, validateCode } = require('../validators');
+
+router.get('/setup-status', IsAuthenticated, getSetupStatus);
 
 router.post('/google-auth', googleAuth);
 
