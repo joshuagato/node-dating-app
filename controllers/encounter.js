@@ -103,8 +103,7 @@ exports.getEncountersProfiles = async (req, res) => {
             filter = await EncountersFilter.create({
                 user_id: currentUserId,
                 max_distance_km: 200,
-                interested_in:
-                    currentUser.interested_in || GENDER.EVERYONE,
+                interested_in: currentUser.interested_in || GENDER.EVERYONE,
                 min_age: 18,
                 max_age: 100,
                 online_only: false,
@@ -201,20 +200,15 @@ exports.getEncountersProfiles = async (req, res) => {
             ? requestedLimit
             : Math.min(requestedLimit, quota.remaining);
 
-        // ---- 7. Build WHERE conditions ----
-        // Every filter value now comes from `filter` (the persisted row),
-        // not from req.query.
+        // ---- 7. Effective filters (single source of truth: the row) ----
         const maxDistanceKm = filter.max_distance_km;
         const interestedIn = filter.interested_in;
         const minAge = filter.min_age;
         const maxAge = filter.max_age;
-        const onlineOnly = currentUserIsPremium
-            ? filter.online_only
-            : false;
-        const premiumOnly = currentUserIsPremium
-            ? filter.premium_only
-            : false;
+        const onlineOnly = currentUserIsPremium ? filter.online_only : false;
+        const premiumOnly = currentUserIsPremium ? filter.premium_only : false;
 
+        // ---- 8. Build WHERE conditions ----
         const distanceLiteral = Sequelize.literal(`
             ROUND(
                 (
@@ -270,7 +264,10 @@ exports.getEncountersProfiles = async (req, res) => {
             if (premiumOnly) premiumClause.is_premium = true;
         }
 
-        // ---- 8. Profile query ----
+        // ---- 9. Profile query ----
+        // NOTE: This now selects the same profile-sourced fields that
+        // Passed / DislikedByMe return, so the profile detail modal on
+        // the Encounters page can render without a second fetch.
         const profilesPromise = User.findAll({
             attributes: [
                 'id',
@@ -292,6 +289,20 @@ exports.getEncountersProfiles = async (req, res) => {
                 [distanceLiteral, 'distance_from'],
                 'is_online',
                 'last_seen',
+                // ---- Profile-sourced fields for the modal ----
+                [Sequelize.literal('"profile"."bio"'), 'bio'],
+                [Sequelize.literal('"profile"."education"'), 'education'],
+                [
+                    Sequelize.literal('"profile"."reason_on_app"'),
+                    'reason_on_app',
+                ],
+                [
+                    Sequelize.literal('"profile"."relationship_status"'),
+                    'relationship_status',
+                ],
+                [Sequelize.literal('"profile"."height_cm"'), 'height_cm'],
+                [Sequelize.literal('"profile"."smoking"'), 'smoking'],
+                [Sequelize.literal('"profile"."drinking"'), 'drinking'],
             ],
             include: [
                 {
@@ -342,7 +353,7 @@ exports.getEncountersProfiles = async (req, res) => {
             profilesPromise,
         ]);
 
-        // ---- 9. Respond ----
+        // ---- 10. Respond ----
         return res.json({
             success: true,
             myself: formatMyself(me),
