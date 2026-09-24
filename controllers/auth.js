@@ -441,3 +441,62 @@ exports.resetPassword = async (req, res) => {
     success = true;
     res.send({ success, message });
 }
+
+exports.getSetupStatus = async (req, res) => {
+    try {
+        const currentUser = req.user;
+        if (!currentUser) {
+            return res
+                .status(401)
+                .json({ success: false, message: 'Unauthorized' });
+        }
+
+        const { id: currentUserId } = currentUser;
+
+        const user = await User.findByPk(currentUserId, {
+            attributes: [
+                'id',
+                'email_verified',
+                'basic_profile_setup',
+                'advanced_profile_setup',
+                'final_profile_setup',
+                'profile_page_setup',
+                'first_name',
+                'last_name',
+            ],
+        });
+
+        if (!user) {
+            return res
+                .status(404)
+                .json({ success: false, message: 'User not found' });
+        }
+
+        const plain = user.toJSON();
+
+        // The frontend can decide where to route based on these flags
+        // and the two name fields (needed for the basic profile page's
+        // initial form state).
+        return res.json({
+            success: true,
+            setup: {
+                email_verified: Boolean(plain.email_verified),
+                basic_profile_setup: Boolean(plain.basic_profile_setup),
+                advanced_profile_setup: Boolean(
+                    plain.advanced_profile_setup
+                ),
+                final_profile_setup: Boolean(plain.final_profile_setup),
+                profile_page_setup: Boolean(plain.profile_page_setup),
+                first_name: plain.first_name || '',
+                last_name: plain.last_name || '',
+            },
+        });
+    } catch (error) {
+        console.error('Error fetching setup status:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch setup status',
+            error: error.message,
+        });
+    }
+};
