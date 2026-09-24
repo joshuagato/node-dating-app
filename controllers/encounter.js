@@ -941,94 +941,139 @@ exports.getUsersWhoDisLikeMe = async (req, res) => {
 };
 
 exports.getUsersDisLikedByMe = async (req, res) => {
-    const { id: currentUserId } = req.user;
+    try {
+        const { id: currentUserId } = req.user;
+        if (!currentUserId) {
+            return res
+                .status(401)
+                .json({ success: false, message: 'Unauthorized' });
+        }
 
-    const incomingDisLikes = await Encounter.findAll({
-        attributes: [
-            'id',
-            [
-                Sequelize.literal(`
-                TRIM(
-                    CONCAT(
-                        "recipient"."first_name", 
-                        CASE 
-                            WHEN "recipient->profile"."last_name_on" = TRUE AND "recipient"."last_name" IS NOT NULL 
-                            THEN CONCAT(' ', "recipient"."last_name") 
-                            ELSE '' 
-                        END,
-                        CASE 
-                            WHEN "recipient->profile"."other_names_on" = TRUE AND "recipient"."other_names" IS NOT NULL 
-                            THEN CONCAT(' ', "recipient"."other_names") 
-                            ELSE '' 
-                        END
-                    )
-                )
-            `),
-                'name'
+        const outgoingDislikes = await Encounter.findAll({
+            attributes: [
+                'id',
+                [
+                    Sequelize.literal(`
+                        TRIM(
+                            CONCAT(
+                                "recipient"."first_name",
+                                CASE
+                                    WHEN "recipient->profile"."last_name_on" = TRUE
+                                         AND "recipient"."last_name" IS NOT NULL
+                                    THEN CONCAT(' ', "recipient"."last_name")
+                                    ELSE ''
+                                END,
+                                CASE
+                                    WHEN "recipient->profile"."other_names_on" = TRUE
+                                         AND "recipient"."other_names" IS NOT NULL
+                                    THEN CONCAT(' ', "recipient"."other_names")
+                                    ELSE ''
+                                END
+                            )
+                        )
+                    `),
+                    'name',
+                ],
+                ['updatedAt', 'disliked_at_raw'],
+                ['seen_in_users_disliked_by_me', 'seen'],
+                [
+                    Sequelize.literal(`
+                        DATE_PART('year', AGE(CURRENT_DATE, "recipient"."date_of_birth"))::integer
+                    `),
+                    'age',
+                ],
+                [
+                    Sequelize.literal(`
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'path', up."path",
+                                    'position', up."position"
+                                ) ORDER BY up."position" ASC
+                            )
+                            FROM "UserPictures" up
+                            WHERE up."user_id" = "recipient"."id"
+                        )
+                    `),
+                    'pictures',
+                ],
+                [Sequelize.literal('"recipient"."id"'), 'user_id'],
+                [Sequelize.literal('"recipient"."country"'), 'country'],
+                [Sequelize.literal('"recipient"."city"'), 'city'],
+                [Sequelize.literal('"recipient"."is_online"'), 'is_online'],
+                [Sequelize.literal('"recipient"."last_seen"'), 'last_seen'],
+                [Sequelize.literal('"recipient"."gender"'), 'gender'],
+                // Fields on UserProfile
+                [Sequelize.literal('"recipient->profile"."bio"'), 'bio'],
+                [Sequelize.literal('"recipient->profile"."education"'), 'education'],
+                [
+                    Sequelize.literal('"recipient->profile"."reason_on_app"'),
+                    'reason_on_app',
+                ],
+                [
+                    Sequelize.literal('"recipient->profile"."relationship_status"'),
+                    'relationship_status',
+                ],
+                [
+                    Sequelize.literal('"recipient->profile"."height_cm"'),
+                    'height_cm',
+                ],
+                [Sequelize.literal('"recipient->profile"."smoking"'), 'smoking'],
+                [Sequelize.literal('"recipient->profile"."drinking"'), 'drinking'],
             ],
-            ['updatedAt', 'disliked_at'],
-            ['seen_in_users_disliked_by_me', 'seen'],
-            [
-                Sequelize.literal(`
-                DATE_PART('year', AGE(CURRENT_DATE, "recipient"."date_of_birth"))::integer
-            `),
-                'age'
+            // FIX: current user is the INITIATOR (they did the disliking).
+            // The other party is the RECIPIENT.
+            where: {
+                initiator_id: currentUserId,
+                action: ENCOUNTER_ACTION.DISLIKE,
+            },
+            include: [
+                {
+                    model: User,
+                    as: 'recipient',
+                    attributes: [],
+                    include: [
+                        {
+                            model: UserProfile,
+                            as: 'profile',
+                            attributes: [],
+                        },
+                    ],
+                },
             ],
-            [
-                Sequelize.literal(`
-                (
-                    SELECT json_agg(
-                        json_build_object(
-                            'path', up."path",
-                            'position', up."position"
-                        ) ORDER BY up."position" ASC
-                    )
-                    FROM "UserPictures" up
-                    WHERE up."user_id" = "recipient"."id"
-                )
-            `),
-                'pictures'
-            ],
-            [
-                Sequelize.literal('"recipient"."id"'),
-                'user_id'
-            ],
-            [
-                Sequelize.literal('"recipient"."country"'),
-                'country'
-            ]
-        ],
-        where: {
-            recipient_id: currentUserId,
-            action: ENCOUNTER_ACTION.DISLIKE,
-        },
-        include: [
-            {
-                model: User,
-                as: 'recipient',
-                attributes: [],
-                include: [
-                    {
-                        model: UserProfile,
-                        as: 'profile',
-                        attributes: []
-                    }
-                ]
-            }
-        ],
-        order: [['updatedAt', 'DESC']],
-        raw: true
-    });
+            order: [['updatedAt', 'DESC']],
+            raw: true,
+        });
 
-    const disLikes = incomingDisLikes.map(dislike => ({
-        ...dislike, disliked_at: moment(dislike.disliked_at, 'YYYYMMDD').fromNow()
-    }))
+        const disLikes = outgoingDislikes
+            .filter((d) => d.user_id)
+            .map((d) => ({
+                ...d,
+                pictures: Array.isArray(d.pictures) ? d.pictures : [],
+                // Human-readable relative time for display.
+                disliked_at: moment(d.disliked_at_raw).fromNow(),
+                // Raw ISO for precise filtering.
+                disliked_at_iso: d.disliked_at_raw,
+                disliked_at_raw: undefined,
+            }));
 
-    const unseen = disLikes.some(like => !like.seen);
+        const unseen = disLikes.some((d) => !d.seen);
 
-    let success = true;
-    res.send({ success, unseen, disLikes });
-}
+        return res.send({
+            success: true,
+            unseen,
+            count: disLikes.length,
+            disLikes,
+        });
+    } catch (error) {
+        console.error('Error fetching users I disliked:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch users',
+            error: error.message,
+        });
+    }
+};
 
 exports.getNewLikesCount = async (req, res) => {
     const userId = req.user.id;
