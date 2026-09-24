@@ -38,8 +38,8 @@ exports.generateCookiesForToken = (res, token) => {
         maxAge: (24 * 60 * 60 * 1000) * 30,                 // 30 days,
         httpOnly: false,                                    // Prevents client-side JS access (XSS protection)
         secure: false,                                      // Forces cookie to be sent over HTTPS only
-        sameSite: isProduction ? 'none' : 'strict',         // Mitigates CSRF attacks
-        partitioned: true,
+        sameSite: isProduction ? 'none' : 'lax',         // Mitigates CSRF attacks
+        partitioned: isProduction,
         path: '/'
     });
 }
@@ -49,8 +49,8 @@ exports.generateCookiesForCurrentUserId = (res, user_id) => {
         maxAge: (24 * 60 * 60 * 1000) * 30,                 // 30 days,
         httpOnly: false,                                    // Prevents client-side JS access (XSS protection)
         secure: false,                                      // Forces cookie to be sent over HTTPS only
-        sameSite: isProduction ? 'none' : 'strict',         // Mitigates CSRF attacks
-        partitioned: true,
+        sameSite: isProduction ? 'none' : 'lax',         // Mitigates CSRF attacks
+        partitioned: isProduction,
         path: '/'
     });
 }
