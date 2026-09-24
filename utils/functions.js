@@ -35,19 +35,19 @@ exports.generateTokenForUserId = id => {
 
 exports.generateCookiesForToken = (res, token) => {
     res.cookie('token', token, {
-        maxAge: (24 * 60 * 60 * 1000) * 30,     // 30 days,
-        httpOnly: isProduction,                        // Prevents client-side JS access (XSS protection)
-        secure: isProduction,                          // Forces cookie to be sent over HTTPS only
-        sameSite: isProduction ? 'none' : 'strict'                      // Mitigates CSRF attacks
+        maxAge: (24 * 60 * 60 * 1000) * 30,                 // 30 days,
+        httpOnly: false,                             // Prevents client-side JS access (XSS protection)
+        secure: isProduction,                               // Forces cookie to be sent over HTTPS only
+        sameSite: isProduction ? 'none' : 'strict'          // Mitigates CSRF attacks
     });
 }
 
 exports.generateCookiesForCurrentUserId = (res, user_id) => {
     res.cookie('user_id', user_id, {
-        maxAge: (24 * 60 * 60 * 1000) * 30,     // 30 days,
-        httpOnly: isProduction,                        // Prevents client-side JS access (XSS protection)
-        secure: isProduction,                          // Forces cookie to be sent over HTTPS only
-        sameSite: isProduction ? 'none' : 'strict'                      // Mitigates CSRF attacks
+        maxAge: (24 * 60 * 60 * 1000) * 30,                 // 30 days,
+        httpOnly: false,                                    // Prevents client-side JS access (XSS protection)
+        secure: isProduction,                               // Forces cookie to be sent over HTTPS only
+        sameSite: isProduction ? 'none' : 'strict'          // Mitigates CSRF attacks
     });
 }
 
