@@ -16,6 +16,7 @@
     "@sequelize/core": "7.0.0-alpha.42",
     "@sequelize/postgres": "7.0.0-alpha.48",
     "@sequelize/sqlite3": "7.0.0-alpha.48",
+    "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.11.0",
     "console-log-colors": "^0.5.0",
