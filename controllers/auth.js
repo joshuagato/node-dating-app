@@ -190,7 +190,8 @@ exports.login = async (req, res) => {
 
     res.status(200).json({
         success, message, user_id, email_verified, basic_profile_setup,
-        advanced_profile_setup, final_profile_setup, profile_page_setup
+        advanced_profile_setup, final_profile_setup, profile_page_setup,
+        token
     });
 }
 
@@ -336,7 +337,7 @@ exports.requestPasswordReset = async (req, res) => {
 
     message = 'Kindly Check Your Email Inbox/Junk/Spam for Confirmation Code.';
     success = true;
-    res.send({ success, message });
+    res.send({ success, message, token });
 }
 
 exports.confirmPasswordReset = async (req, res) => {
@@ -480,6 +481,7 @@ exports.getSetupStatus = async (req, res) => {
         return res.json({
             success: true,
             setup: {
+                user_id: plain.id,
                 email_verified: Boolean(plain.email_verified),
                 basic_profile_setup: Boolean(plain.basic_profile_setup),
                 advanced_profile_setup: Boolean(
