@@ -251,7 +251,7 @@ exports.getEncountersProfiles = async (req, res) => {
         if (
             interestedIn &&
             interestedIn !== GENDER.EVERYONE &&
-            interestedIn !== GENDER.EVERONE
+            interestedIn !== GENDER.EVERYONE
         ) {
             genderClause.gender =
                 interestedIn === GENDER.MEN ? GENDER.MAN : GENDER.WOMAN;

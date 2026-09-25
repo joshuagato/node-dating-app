@@ -357,7 +357,7 @@ exports.getNearbyUsers = async (req, res) => {
     };
 
     // Gender filter check
-    if (interestedIn && interestedIn !== GENDER.EVERYONE && interestedIn !== GENDER.EVERONE) {
+    if (interestedIn && interestedIn !== GENDER.EVERYONE && interestedIn !== GENDER.EVERYONE) {
         const targetGender = interestedIn === GENDER.MEN ? GENDER.MAN : GENDER.WOMAN;
         whereClause.gender = targetGender;
     }
