@@ -56,8 +56,8 @@ const TWENTY_FOUR_HOURS_FROM_NOW = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
 const TWENTY_FOUR_HOURS_BEFORE_NOW = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-const FREE_DAILY_ENCOUNTER_LIMIT = 5;   // change to 10 for testing
-const AD_EVERY_N_CARDS = 2;              // change to 2 for testing
+const FREE_DAILY_ENCOUNTER_LIMIT = 30;   // change to 10 for testing
+const AD_EVERY_N_CARDS = 9;              // change to 2 for testing
 const FREE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const cloudFactorPath = 'https://';
