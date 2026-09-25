@@ -516,12 +516,12 @@ exports.likeUser = async (req, res) => {
         const { recipient_id } = req.body;
 
         // ---- 1. Already acted on this user? ----
-        const existingEncounter = await Encounter.findOne({
-            where: { initiator_id, recipient_id },
-        });
-        if (existingEncounter) {
-            return res.send({ success: false, alreadySeen: true, match: false });
-        }
+        // const existingEncounter = await Encounter.findOne({
+        //     where: { initiator_id, recipient_id },
+        // });
+        // if (existingEncounter) {
+        //     return res.send({ success: false, alreadySeen: true, match: false });
+        // }
 
         // ---- 2. Has the recipient already liked me? ----
         const reciprocalEncounter = await Encounter.findOne({
@@ -796,12 +796,12 @@ exports.dislikeUser = async (req, res) => {
         const { id: initiator_id } = req.user;
         const { recipient_id } = req.body;
 
-        const existingEncounter = await Encounter.findOne({
-            where: { initiator_id, recipient_id },
-        });
+        // const existingEncounter = await Encounter.findOne({
+        //     where: { initiator_id, recipient_id },
+        // });
 
-        // Already encountered — do NOT count again, do NOT increment quota
-        if (existingEncounter) return res.send({ success: false, alreadySeen: true });
+        // // Already encountered — do NOT count again, do NOT increment quota
+        // if (existingEncounter) return res.send({ success: false, alreadySeen: true });
 
         req.body.initiator_id = initiator_id;
         await Encounter.create(req.body);
