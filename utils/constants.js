@@ -3,7 +3,7 @@ const VERIFICATION_CHANNEL = {
 };
 
 const GENDER = {
-    MAN: 'man', MEN: 'men', WOMAN: 'woman', WOMEN: 'women', EVERONE: 'everyone'
+    MAN: 'man', MEN: 'men', WOMAN: 'woman', WOMEN: 'women', EVERYONE: 'everyone'
 };
 
 const ENCOUNTER_ACTION = {
