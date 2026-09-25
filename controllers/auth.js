@@ -168,7 +168,7 @@ exports.login = async (req, res) => {
         };
 
         await setUserEmailVerificationRequest(verificationRequestData);
-        // sendEmailVerificationMail(email, verificationCode);
+        sendEmailVerificationMail(email, verificationCode);
 
         message = 'Please check your email for confirmation code';
     } else {
@@ -222,7 +222,7 @@ exports.signup = async (req, res) => {
     };
 
     await setUserEmailVerificationRequest(verificationRequestData);
-    // sendEmailVerificationMail(email, verificationCode);
+    sendEmailVerificationMail(email, verificationCode);
 
     const token = generateTokenForUserId(user.id);
 
@@ -329,7 +329,7 @@ exports.requestPasswordReset = async (req, res) => {
     };
 
     await setUserPasswordResetRequest(passwordResetRequestData);
-    // sendEmailVerificationMail(email, confirmationCode);
+    sendEmailVerificationMail(email, confirmationCode);
 
     const token = generateTokenForUserId(userData.id);
 
