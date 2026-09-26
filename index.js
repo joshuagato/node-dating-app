@@ -11,6 +11,7 @@ const { connectPostgreSql } = require('./database/postgresql');
 const { apiRouter } = require('./routes');
 const { initChatSocket, onlineUsers } = require('./sockets/chatSocket');
 const { startExpireSubscriptionsJob } = require('./jobs/expireSubscriptions');
+const { keepRenderAwake } = require('./jobs/keepRenderAwake');
 
 const app = express();
 const router = express.Router();
@@ -76,6 +77,8 @@ server.listen(port, async () => {
 
     // Only start the cron once the DB is confirmed reachable
     startExpireSubscriptionsJob();
+
+    keepRenderAwake();
 });
 
 
