@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const User = require('../models/User');
 const Subscription = require('../models/Subscription');
-const { BILLING_CYCLES, getPricingForCountry, resolveChargeAmount } = require('../config/pricing');
+const { BILLING_CYCLES, getPricingForCountry, computeGhsCharge } = require('../config/pricing');
 
 User.hasMany(Subscription, { foreignKey: 'user_id', as: 'subscriptions' });
 
@@ -22,48 +22,37 @@ const DURATION_DAYS = {
 // ---------------------------------------------------------------------------
 exports.getPrices = async (req, res) => {
     try {
-        const user = await User.findByPk(req.user.id, {
-            attributes: ['id', 'email', 'country_code'],
-        });
-
-        const country_code = (user?.country_code || '').toLowerCase();
-
-        if (!country_code) {
-            return res.status(400).json({
-                success: false,
-                message: 'Country not set. Please update your location.',
-            });
+        const user = req.user;
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
-        const region = getPricingForCountry(country_code);
+        const region = getPricingForCountry(user.country_code);
+        const displayCurrency = region.displayCurrency;
 
-        const displayPrices = Object.fromEntries(
-            Object.entries(region.prices).map(([cycle, amount]) => [
-                cycle,
-                amount / 100,
-            ])
-        );
-
-        const charges = Object.fromEntries(
-            BILLING_CYCLES.map((cycle) => {
-                const { chargeAmount, chargeCurrency } = resolveChargeAmount(region, cycle);
-                return [cycle, { amount: chargeAmount, currency: chargeCurrency }];
-            })
-        );
+        // Build a `charges` map so the frontend can show the GHS amount
+        // for whichever cycle the user selects, without recomputing.
+        const charges = {};
+        for (const cycle of BILLING_CYCLES) {
+            charges[cycle] = computeGhsCharge(region, cycle);
+        }
 
         return res.json({
             success: true,
-            country_code,
-            displayCurrency: region.displayCurrency,
-            chargeCurrency: region.chargeCurrency,
-            prices: displayPrices,
-            charges,
-            cycles: BILLING_CYCLES,
             email: user.email,
+            displayCurrency,
+            prices: region.prices,
+            charges,
+            // Useful for the "1 USD ≈ X GHS" note if you ever want to show it.
+            usdToGhs: 11.62,
         });
     } catch (error) {
-        console.error('getPrices error:', error);
-        return res.status(500).json({ success: false, error: error.message });
+        console.error('Failed to get premium prices:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to load pricing',
+            error: error.message,
+        });
     }
 };
 
@@ -100,7 +89,7 @@ exports.verifyPaystackPayment = async (req, res) => {
 
         // 3. Sanity-check the amount against what this user's region should pay
         const region = getPricingForCountry(req.user.country_code);
-        const { chargeAmount, chargeCurrency } = resolveChargeAmount(region, billing_cycle);
+        const { chargeAmount, chargeCurrency } = computeGhsCharge(region, billing_cycle);
 
         if (tx.amount !== chargeAmount || tx.currency !== chargeCurrency) {
             console.warn('Amount mismatch:', {
