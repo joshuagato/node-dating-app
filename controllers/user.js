@@ -957,6 +957,11 @@ exports.setupFinalProfile = async (req, res) => {
             position,
             path: imagePath
         });
+
+        await User.update(
+            { final_profile_setup: true },
+            { where: { id: user_id } }
+        );
     }
 
     message = 'Pictures saved';
