@@ -63,12 +63,12 @@ const profileSetupValidation = [
 
     body('smoking')
         .optional({ checkFalsy: true })
-        .isIn(['Never', 'Socially', 'Regularly'])
+        .isIn(['Never', 'Socially', 'Regularly', 'Occasionally'])
         .withMessage('Invalid option for smoking'),
 
     body('drinking')
         .optional({ checkFalsy: true })
-        .isIn(['Never', 'Socially', 'Regularly'])
+        .isIn(['Never', 'Socially', 'Regularly', 'Occasionally'])
         .withMessage('Invalid option for drinking')
 ];
 
