@@ -168,7 +168,7 @@ exports.login = async (req, res) => {
         };
 
         await setUserEmailVerificationRequest(verificationRequestData);
-        sendEmailVerificationMail(email, verificationCode);
+        await sendEmailVerificationMail(email, verificationCode);
 
         message = 'Please check your email for confirmation code';
     } else {
@@ -222,7 +222,7 @@ exports.signup = async (req, res) => {
     };
 
     await setUserEmailVerificationRequest(verificationRequestData);
-    sendEmailVerificationMail(email, verificationCode);
+    await sendEmailVerificationMail(email, verificationCode);
 
     const token = generateTokenForUserId(user.id);
 
@@ -230,9 +230,10 @@ exports.signup = async (req, res) => {
 
     generateCookiesForCurrentUserId(res, user.id);
 
+    const { id: user_id } = user;
     success = true;
     message = 'Check your email for verification code';
-    res.status(200).json({ success, message, token });
+    res.status(200).json({ success, message, token, user_id });
 }
 
 exports.verifyEmail = async (req, res) => {
@@ -329,7 +330,7 @@ exports.requestPasswordReset = async (req, res) => {
     };
 
     await setUserPasswordResetRequest(passwordResetRequestData);
-    sendEmailVerificationMail(email, confirmationCode);
+    await sendEmailVerificationMail(email, confirmationCode);
 
     const token = generateTokenForUserId(userData.id);
 
