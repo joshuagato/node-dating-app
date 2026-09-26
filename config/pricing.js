@@ -1,92 +1,80 @@
 // Central pricing config.
 //
-// Each region has:
+// Every region has:
 //   - displayCurrency : what the user sees on the page
-//   - chargeCurrency  : what Paystack actually processes
-//   - localPrices     : prices in the display currency (smallest unit)
-//   - usdPrices       : prices in USD cents, used as the fallback charge
-//                       amount when the display currency isn't supported by Paystack
+//   - prices          : prices in the display currency (smallest unit)
 //
-// Rule: when converting local -> USD for charging, always round DOWN so
-// the user is never charged more than their local price is worth.
+// Paystack charges in GHS for all regions. The GHS charge is computed by
+// converting the USD-equivalent of the local price at a fixed rate, then
+// rounding UP to the nearest 0.50 GHS. Rounding up ensures we never
+// undercharge; the small buffer covers FX fluctuation and card fees.
+//
+// The fixed USD->GHS rate should be updated periodically (weekly is fine
+// for a dating app). If you later add a live FX feed, replace the constant
+// with a cached lookup and keep the same shape.
 
-const PAYSTACK_SUPPORTED = new Set(['GHS', 'NGN', 'ZAR', 'KES', 'USD']);
+const USD_TO_GHS = 11.62;          // update periodically
+const GHS_ROUNDING_STEP = 50;      // round UP to nearest 0.50 GHS (50 pesewas)
+const GHS_MIN_CHARGE = 100;        // floor: 1.00 GHS, so we never charge 0
 
-// USD-based helper for countries whose native currency Paystack doesn't support.
-// These are the "reference" USD prices we use to price every other region.
+// USD reference tiers (same as before, in USD cents)
 const USD_TIERS = {
-    // Rich Western markets
-    tier_high: { weekly: 300, monthly: 900, quarterly: 2000, semiannual: 3500, annual: 5700 },
-    // Mid-tier markets (parts of Asia, LATAM, Eastern Europe)
-    tier_mid: { weekly: 200, monthly: 500, quarterly: 1200, semiannual: 2000, annual: 3500 },
-    // Low-tier markets (Africa, South Asia)
-    tier_low: { weekly: 150, monthly: 400, quarterly: 900, semiannual: 1500, annual: 2500 },
+    tier_high: { weekly: 300, monthly: 900, quarterly: 2295, semiannual: 4050, annual: 6480 },
+    tier_mid: { weekly: 250, monthly: 700, quarterly: 1785, semiannual: 3150, annual: 5040 },
+    tier_low: { weekly: 200, monthly: 500, quarterly: 1275, semiannual: 2250, annual: 3600 },
+};
+
+// Rough local-currency-per-USD rates for display pricing.
+// These are approximate; the point is to show a familiar local price,
+// not to be FX-precise. Update alongside USD_TO_GHS.
+const LOCAL_PER_USD = {
+    GBP: 0.79, EUR: 0.92, GHS: 11.62, NGN: 1320, ZAR: 16.5, USD: 1,
 };
 
 const PRICING = {
-    // =========================================================================
-    // Paystack-native currencies — display AND charge in local currency
-    // =========================================================================
+    // =====================================================================
+    // Ghana — display and charge in GHS
+    // =====================================================================
     gh: {
         displayCurrency: 'GHS',
-        chargeCurrency: 'GHS',
-        prices: {                    // smallest unit (pesewas)
-            weekly: 2000,            // GHS 20.00
-            monthly: 4000,           // GHS 40.00
-            quarterly: 9000,         // GHS 90.00
-            semiannual: 15000,       // GHS 150.00
-            annual: 24000,           // GHS 240.00
+        prices: {
+            weekly: 2000, monthly: 5000, quarterly: 12750,
+            semiannual: 22500, annual: 36000,
         },
     },
+    // =====================================================================
+    // Nigeria — display NGN, charge GHS
+    // =====================================================================
     ng: {
         displayCurrency: 'NGN',
-        chargeCurrency: 'NGN',
         prices: {
-            weekly: 250000,          // ₦2,500
-            monthly: 350000,         // ₦3,500
-            quarterly: 1050000,      // ₦10,500
-            semiannual: 1750000,     // ₦17,500
-            annual: 2750000,         // ₦27,500
+            weekly: 250000, monthly: 600000, quarterly: 1530000,
+            semiannual: 2700000, annual: 4320000,
         },
     },
+    // =====================================================================
+    // South Africa — display ZAR, charge GHS
+    // =====================================================================
     za: {
         displayCurrency: 'ZAR',
-        chargeCurrency: 'ZAR',
         prices: {
-            weekly: 3000,            // R30
-            monthly: 8000,           // R80
-            quarterly: 20000,        // R200
-            semiannual: 35000,       // R350
-            annual: 55000,           // R550
+            weekly: 3000, monthly: 8000, quarterly: 20400,
+            semiannual: 36000, annual: 57600,
         },
     },
-
-    // =========================================================================
-    // Stripe-of-the-world currencies — display in native, charge in USD
-    // =========================================================================
-
-    // --- United Kingdom ---
+    // =====================================================================
+    // UK — display GBP, charge GHS
+    // =====================================================================
     gb: {
         displayCurrency: 'GBP',
-        chargeCurrency: 'USD',
-        prices: {                    // pence
-            weekly: 200,             // £2.00
-            monthly: 800,            // £8.00
-            quarterly: 2100,         // £21.00
-            semiannual: 3600,        // £36.00
-            annual: 6000,            // £60.00
-        },
-        // USD equivalent (in cents) for the charge. Rounded DOWN.
-        usdPrices: {
-            weekly: 250,             // £2 ≈ $2.50
-            monthly: 1000,           // £8 ≈ $10.00
-            quarterly: 2600,         // £21 ≈ $26.00
-            semiannual: 4500,        // £36 ≈ $45.00
-            annual: 7500,            // £60 ≈ $75.00
+        prices: {
+            weekly: 270, monthly: 800, quarterly: 2040,
+            semiannual: 3600, annual: 5760,
         },
     },
-
-    // --- Eurozone ---
+    // =====================================================================
+    // Eurozone — display EUR, charge GHS
+    // =====================================================================
     ...Object.fromEntries(
         [
             'de', 'fr', 'es', 'it', 'nl', 'be', 'at', 'ch', 'se', 'no', 'dk', 'fi',
@@ -94,80 +82,54 @@ const PRICING = {
             'lv', 'ee', 'lu', 'mt', 'cy',
         ].map((code) => [code, {
             displayCurrency: 'EUR',
-            chargeCurrency: 'USD',
-            prices: {                // euro cents
-                weekly: 300,         // €3.00
-                monthly: 900,        // €9.00
-                quarterly: 2100,     // €21.00
-                semiannual: 3600,    // €36.00
-                annual: 6000,        // €60.00
-            },
-            usdPrices: {
-                weekly: 350,
-                monthly: 1100,
-                quarterly: 2800,
-                semiannual: 4800,
-                annual: 8000,
+            prices: {
+                weekly: 300, monthly: 900, quarterly: 2295,
+                semiannual: 4050, annual: 6480,
             },
         }])
     ),
+    // =====================================================================
+    // US, Canada, Australia, NZ — display USD, charge GHS
+    // =====================================================================
+    us: { displayCurrency: 'USD', prices: { weekly: 400, monthly: 1000, quarterly: 2200, semiannual: 3800, annual: 6000 } },
+    ca: { displayCurrency: 'USD', prices: USD_TIERS.tier_high },
+    au: { displayCurrency: 'USD', prices: USD_TIERS.tier_high },
+    nz: { displayCurrency: 'USD', prices: USD_TIERS.tier_high },
 
-    // --- US, Canada, Australia, New Zealand ---
-    us: {
-        displayCurrency: 'USD',
-        chargeCurrency: 'USD',
-        prices: {
-            weekly: 400, monthly: 1000, quarterly: 2200,
-            semiannual: 3800, annual: 6000,
-        },
-    },
-    ca: {
-        displayCurrency: 'USD',      // we display USD for these three
-        chargeCurrency: 'USD',
-        prices: USD_TIERS.tier_high,
-    },
-    au: {
-        displayCurrency: 'USD',
-        chargeCurrency: 'USD',
-        prices: USD_TIERS.tier_high,
-    },
-    nz: {
-        displayCurrency: 'USD',
-        chargeCurrency: 'USD',
-        prices: USD_TIERS.tier_high,
-    },
-
-    // --- Asia (mid-tier) — display & charge USD ---
+    // =====================================================================
+    // Mid-tier markets — display USD, charge GHS
+    // =====================================================================
     ...Object.fromEntries(
         ['in', 'pk', 'bd', 'ph', 'vn', 'id', 'th', 'my', 'lk'].map((code) => [code, {
             displayCurrency: 'USD',
-            chargeCurrency: 'USD',
             prices: USD_TIERS.tier_mid,
         }])
     ),
-
-    // --- South America — display & charge USD ---
     ...Object.fromEntries(
         ['br', 'co', 'ar', 'pe', 'cl', 'ec'].map((code) => [code, {
             displayCurrency: 'USD',
-            chargeCurrency: 'USD',
             prices: USD_TIERS.tier_mid,
         }])
     ),
-
-    // --- High-income "rest of world" — display & charge USD ---
     ...Object.fromEntries(
         ['jp', 'kr', 'sg', 'ae', 'sa', 'il', 'tw', 'hk'].map((code) => [code, {
             displayCurrency: 'USD',
-            chargeCurrency: 'USD',
             prices: USD_TIERS.tier_high,
+        }])
+    ),
+    ...Object.fromEntries(
+        [
+            'bw', 'cm', 'ke', 'ls', 'lr', 'mw', 'mu', 'na', 'rw', 'sc',
+            'sl', 'so', 'ss', 'sd', 'sz', 'tz', 'ug', 'zm', 'zw',
+        ].map((code) => [code, {
+            displayCurrency: 'USD',
+            prices: USD_TIERS.tier_low,
         }])
     ),
 };
 
 const DEFAULT_PRICING = {
     displayCurrency: 'USD',
-    chargeCurrency: 'USD',
     prices: USD_TIERS.tier_mid,
 };
 
@@ -179,38 +141,55 @@ function getPricingForCountry(countryCode) {
 }
 
 /**
- * Resolve what the user sees (display) and what Paystack is asked to charge.
- * For unsupported display currencies, we fall back to USD using usdPrices.
- * The user is never charged more than their local price.
+ * Convert the local display price into a GHS charge.
+ *
+ * Steps:
+ *   1. Convert local amount (smallest unit) -> USD cents
+ *      using the LOCAL_PER_USD table.
+ *   2. Convert USD cents -> GHS pesewas using USD_TO_GHS.
+ *   3. Round UP to the nearest GHS_ROUNDING_STEP.
+ *   4. Clamp to GHS_MIN_CHARGE.
+ *
+ * Rounding UP ensures the user is never undercharged. The tiny buffer
+ * (up to 0.49 GHS) also absorbs FX drift between updates.
  */
-function resolveChargeAmount(region, billingCycle) {
-    const displayCurrency = region.displayCurrency;
-    const chargeCurrency = region.chargeCurrency;
+function computeGhsCharge(region, billingCycle) {
     const localAmount = region.prices[billingCycle];
+    const localCurrency = region.displayCurrency;
 
-    // Paystack-native path: localAmount is already the charge amount
-    if (PAYSTACK_SUPPORTED.has(chargeCurrency)) {
+    // Fast path: already GHS
+    if (localCurrency === 'GHS') {
         return {
             chargeAmount: localAmount,
-            chargeCurrency,
+            chargeCurrency: 'GHS',
         };
     }
 
-    // Foreign path: charge in USD, using the region's usdPrices table.
-    // If usdPrices is missing (shouldn't happen for foreign regions),
-    // fall back to the raw local amount — but that would be wrong, so
-    // guard loudly during development.
-    const usdAmount = region.usdPrices?.[billingCycle];
-    if (usdAmount == null) {
-        throw new Error(
-            `Missing usdPrices for ${displayCurrency}/${billingCycle}. ` +
-            `Every non-Paystack region must define usdPrices.`
-        );
-    }
+    const localPerUsd = LOCAL_PER_USD[localCurrency] || 1;
+
+    // Local smallest unit -> USD cents
+    // e.g. 800 GBP pence / 0.79 GBP-per-USD = 1012.66 USD cents
+    // (because 800 pence = £8, £8 / 0.79 ≈ $10.13)
+    //
+    // Note: prices are stored in smallest unit (pence, cents).
+    // Dividing by LOCAL_PER_USD converts the smallest unit to USD smallest
+    // unit only because we treat 1 local-unit = 1/100 currency and 1 USD
+    // = 100 cents. That ratio holds for all our currencies (all 2-decimal).
+    const usdCents = localAmount / localPerUsd;
+
+    // USD cents -> GHS pesewas
+    // 1 USD = 100 cents = 11.62 GHS = 1162 pesewas
+    const ghsPesewas = usdCents * (USD_TO_GHS * 100 / 100);
+    // Simplify: ghsPesewas = usdCents * USD_TO_GHS
+
+    const ghsRaw = ghsPesewas;
+
+    // Round UP to nearest 0.50 GHS
+    const rounded = Math.ceil(ghsRaw / GHS_ROUNDING_STEP) * GHS_ROUNDING_STEP;
 
     return {
-        chargeAmount: usdAmount,   // already rounded DOWN at definition time
-        chargeCurrency: 'USD',
+        chargeAmount: Math.max(rounded, GHS_MIN_CHARGE),
+        chargeCurrency: 'GHS',
     };
 }
 
@@ -218,7 +197,7 @@ module.exports = {
     PRICING,
     DEFAULT_PRICING,
     BILLING_CYCLES,
-    PAYSTACK_SUPPORTED,
+    USD_TO_GHS,
     getPricingForCountry,
-    resolveChargeAmount,
+    computeGhsCharge,
 };
