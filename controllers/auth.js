@@ -6,9 +6,9 @@ const { sendEmailVerificationMail } = require('../mailer/senders/email-verificat
 const { generateEmailVerificationCode, generatePasswordResetVerificationCode, generateTokenForUserId,
     generateCookiesForToken, generateCookiesForCurrentUserId, organizeErrors, deleteUserFields,
     checkForVerificationCodeExpiry, checkForChangedPasswordInThePast, setUserEmailVerificationRequest,
-    setUserPasswordResetRequest, hashPassword
+    setUserPasswordResetRequest, hashPassword, thirtyMinutesFromNow, thirtyMinutesBeforeNow
 } = require('../utils/functions');
-const { TWENTY_FOUR_HOURS_FROM_NOW, TWENTY_FOUR_HOURS_BEFORE_NOW, SIGNUP_CHANNEL } = require('../utils/constants');
+const { SIGNUP_CHANNEL } = require('../utils/constants');
 
 const User = require('../models/User');
 const EmailVerificationRequest = require('../models/EmailVerificationRequest');
@@ -164,7 +164,7 @@ exports.login = async (req, res) => {
 
         const verificationRequestData = {
             user_id: user.id, email_verification_code: verificationCode,
-            email_verification_code_expiration: TWENTY_FOUR_HOURS_FROM_NOW
+            email_verification_code_expiration: thirtyMinutesFromNow()
         };
 
         await setUserEmailVerificationRequest(verificationRequestData);
@@ -218,7 +218,7 @@ exports.signup = async (req, res) => {
 
     const verificationRequestData = {
         user_id: user.id, email_verification_code: verificationCode,
-        email_verification_code_expiration: TWENTY_FOUR_HOURS_FROM_NOW
+        email_verification_code_expiration: thirtyMinutesFromNow()
     };
 
     await setUserEmailVerificationRequest(verificationRequestData);
@@ -248,7 +248,7 @@ exports.verifyEmail = async (req, res) => {
     const { verification_code: verification_code_entered, verification_channel } = req.body;
 
     const emailVerificationRequest = await EmailVerificationRequest.findOne({
-        where: { user_id, createdAt: { [Op.gt]: TWENTY_FOUR_HOURS_BEFORE_NOW } }, order: [['createdAt', 'DESC']]
+        where: { user_id, createdAt: { [Op.gt]: thirtyMinutesBeforeNow() } }, order: [['createdAt', 'DESC']]
     });
 
     const { id: email_verification_request_id, email_verification_code, email_verification_code_expiration } = emailVerificationRequest;
@@ -326,7 +326,7 @@ exports.requestPasswordReset = async (req, res) => {
     const confirmationCode = generatePasswordResetVerificationCode(6);
     const passwordResetRequestData = {
         user_id: userData.id, password_reset_code: confirmationCode,
-        password_reset_code_expiration: TWENTY_FOUR_HOURS_FROM_NOW
+        password_reset_code_expiration: thirtyMinutesFromNow()
     };
 
     await setUserPasswordResetRequest(passwordResetRequestData);
@@ -356,7 +356,7 @@ exports.confirmPasswordReset = async (req, res) => {
     let verification_code_expired = true;
 
     const passwordResetRequest = await PasswordResetRequest.findOne({
-        where: { user_id, createdAt: { [Op.gt]: TWENTY_FOUR_HOURS_BEFORE_NOW } }, order: [['createdAt', 'DESC']]
+        where: { user_id, createdAt: { [Op.gt]: thirtyMinutesBeforeNow() } }, order: [['createdAt', 'DESC']]
     });
 
     const { id: password_reset_request_id, password_reset_code, password_reset_code_expiration } = passwordResetRequest;
