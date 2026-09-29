@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const { createSigner } = require('fast-jwt');
 const bcrypt = require('bcryptjs');
 
-const { TWENTY_FOUR_HOURS_FROM_NOW } = require('./constants');
-
 const EmailVerificationRequest = require('../models/EmailVerificationRequest');
 const PasswordResetRequest = require('../models/PasswordResetRequest');
 
@@ -79,15 +77,18 @@ exports.deleteUserFields = user => {
     return user;
 }
 
+const thirtyMinutesFromNow = () => new Date(Date.now() + 30 * 60 * 1000);
+const thirtyMinutesBeforeNow = () => new Date(Date.now() - 30 * 60 * 1000);
+
 exports.updateUserEmailVerificationAndExpiration = async (user, verificationCode) => {
     user.email_verification_code = verificationCode;
-    user.email_verification_code_expiration = TWENTY_FOUR_HOURS_FROM_NOW;
+    user.email_verification_code_expiration = thirtyMinutesFromNow();
     await user.save();
 }
 
 exports.updateUserPasswordResetConfirmationAndExpiration = async (user, confirmationCode) => {
     user.password_reset_code = confirmationCode;
-    user.password_reset_code_expiration = TWENTY_FOUR_HOURS_FROM_NOW;
+    user.password_reset_code_expiration = thirtyMinutesFromNow();
     await user.save();
 }
 
@@ -166,3 +167,6 @@ exports.transform = string => string.split('-').map(word => word.charAt(0).toUpp
 
 exports.formatPasswordChangedString = formatPasswordChangedString;
 exports.calculateDaysDifference = calculateDaysDifference;
+
+exports.thirtyMinutesFromNow = thirtyMinutesFromNow;
+exports.thirtyMinutesBeforeNow = thirtyMinutesBeforeNow;
