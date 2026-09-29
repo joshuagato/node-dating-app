@@ -7,7 +7,7 @@ const { generateEmailVerificationCode, generatePasswordResetVerificationCode, ge
     checkForVerificationCodeExpiry, checkForChangedPasswordInThePast, setUserEmailVerificationRequest,
     setUserPasswordResetRequest, calculateAge
 } = require('../utils/functions');
-const { TWENTY_FOUR_HOURS_FROM_NOW, TWENTY_FOUR_HOURS_BEFORE_NOW, CHAT_STARTER } = require('../utils/constants');
+const { CHAT_STARTER } = require('../utils/constants');
 const { onlineUsers } = require('../sockets/chatSocket');
 
 const User = require('../models/User');
