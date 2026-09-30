@@ -33,7 +33,7 @@ router.put('/basic-profile',
 router.put('/advanced-profile', IsAuthenticated,
     validateLocation('country'), validateLocation('city'),
     validateCoordinates('longitude'), validateCoordinates('latitude'), validateSelfie(),
-    setupAdvancedProfile);
+    upload.single('verifiedSelfie'), setupAdvancedProfile);
 
 router.put('/complete-profile-setup', IsAuthenticated, profileSetupValidation, completeProfileSetup);
 

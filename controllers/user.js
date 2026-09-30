@@ -814,85 +814,115 @@ exports.setupBasicProfile = async (req, res) => {
 };
 
 exports.setupAdvancedProfile = async (req, res) => {
-    const result = validationResult(req);
-    const errors = organizeErrors(result.array());
-    if (!result.isEmpty()) return res.send({ errors });
+    try {
+        const result = validationResult(req);
+        const errors = organizeErrors(result.array());
+        if (!result.isEmpty()) return res.send({ errors });
 
-    const { id: user_id } = req.user;
-    const { verifiedSelfie, city, country, country_code, latitude, longitude } = req.body;
+        const { id: user_id } = req.user;
+        // With multer, text fields come through req.body; the file is on req.file.
+        const {
+            city,
+            country,
+            country_code,
+            latitude,
+            longitude,
+            location_is_manual,
+        } = req.body;
 
-    let success = false;
-    let message = 'User not found.';
+        let success = false;
+        let message = 'User not found.';
 
-    const user = await User.findByPk(user_id);
-    if (!user) return res.json({ success, message });
+        const user = await User.findByPk(user_id);
+        if (!user) return res.json({ success, message });
 
-    // 1. Process & Save the Base64 Image
-    let savedImagePath = null;
+        // 1. Process & save the selfie
+        let savedImagePath = null;
+        const file = req.file;
 
-    if (verifiedSelfie) {
-        const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
+        if (file && file.buffer) {
+            const platform = (process.env.HOSTING_PLATFORM || '').toLowerCase();
 
-        if (platform === 'render') {
-            // Option A: Upload directly to Cloudinary
-            // Cloudinary's uploader accept Data URIs directly (e.g. data:image/jpeg;base64,...)
-            const uploadResult = await cloudinary.uploader.upload(verifiedSelfie, {
-                folder: 'crushr/verification-pictures',
-                resource_type: 'image'
-            });
+            if (platform === 'render') {
+                // Cloudinary: pass the buffer via a stream so we don't have
+                // to re-encode base64 or touch disk.
+                const uploadResult = await new Promise((resolve, reject) => {
+                    const stream = cloudinary.uploader.upload_stream(
+                        {
+                            folder: 'crushr/verification-pictures',
+                            resource_type: 'image',
+                            transformation: [
+                                { quality: 'auto:good', fetch_format: 'auto' },
+                            ],
+                        },
+                        (error, result) => {
+                            if (error) return reject(error);
+                            resolve(result);
+                        }
+                    );
+                    stream.end(file.buffer);
+                });
 
-            // Store Cloudinary's secure URL in DB
-            savedImagePath = uploadResult.secure_url;
+                savedImagePath = uploadResult.secure_url;
+            } else if (platform === 'vps') {
+                const uploadDir = path.join(
+                    __dirname,
+                    '../uploads/verification-pictures'
+                );
+                if (!fs.existsSync(uploadDir)) {
+                    fs.mkdirSync(uploadDir, { recursive: true });
+                }
 
-        } else if (platform === 'vps') {
-            // Option B: Save to local disk
-            const uploadDir = path.join(__dirname, '../uploads/verification-pictures');
-            if (!fs.existsSync(uploadDir)) {
-                fs.mkdirSync(uploadDir, { recursive: true });
+                const fileName = `selfie-${user_id}-${Date.now()}.jpg`;
+                const absolutePath = path.join(uploadDir, fileName);
+
+                await fs.promises.writeFile(absolutePath, file.buffer);
+
+                savedImagePath = `/uploads/verification-pictures/${fileName}`;
+            } else {
+                return res.status(500).json({
+                    success: false,
+                    message:
+                        'Invalid or missing HOSTING_PLATFORM configuration.',
+                });
             }
 
-            // Extract binary data from Base64 Data URI
-            const base64Data = verifiedSelfie.replace(/^data:image\/\w+;base64,/, '');
-            const buffer = Buffer.from(base64Data, 'base64');
-
-            // Generate a unique filename
-            const fileName = `selfie-${user_id}-${Date.now()}.jpg`;
-            const absolutePath = path.join(uploadDir, fileName);
-
-            // Write image to server disk
-            await fs.promises.writeFile(absolutePath, buffer);
-
-            // Relative web path for storage in DB
-            savedImagePath = `/uploads/verification-pictures/${fileName}`;
-
-        } else {
-            return res.status(500).json({
-                success: false,
-                message: 'Invalid or missing HOSTING_PLATFORM configuration.'
+            await VerificationPicture.create({
+                user_id: user.id,
+                path: savedImagePath,
             });
         }
 
-        // Create record in VerificationPicture table
-        await VerificationPicture.create({
-            user_id: user.id,
-            path: savedImagePath
+        // 2. Update user record
+        // Manual location entries may not have valid coordinates; store
+        // them as-is (0,0 in that case) so the user can update later.
+        const lat = Number(latitude);
+        const lon = Number(longitude);
+
+        await user.update({
+            city,
+            country,
+            country_code: country_code || null,
+            latitude: Number.isFinite(lat) ? lat : null,
+            longitude: Number.isFinite(lon) ? lon : null,
+            advanced_profile_setup: true,
+        });
+
+        message =
+            location_is_manual === 'true'
+                ? 'Location and image saved. You can update your precise location later from your profile.'
+                : 'Location and image saved';
+        success = true;
+        return res.send({ success, message });
+    } catch (error) {
+        console.error('setupAdvancedProfile error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to save profile. Please try again.',
+            error: error.message,
         });
     }
-
-    // 2. Update User Record
-    await user.update({
-        city,
-        country,
-        country_code,
-        latitude,
-        longitude,
-        advanced_profile_setup: true
-    });
-
-    message = 'Location and Image saved';
-    success = true;
-    res.send({ success, message });
-}
+};
 
 exports.setupFinalProfile = async (req, res) => {
     const result = validationResult(req);
