@@ -324,7 +324,7 @@ const prepareEmailVerificationTemplate = verificationCode => {
                             <p class="code-label">Your verification code</p>
                             <h3 class="verification-code">{{CODE}}</h3>
                             <p class="code-meta">
-                                Expires in <strong>1 hour</strong>
+                                Expires in <strong>30 Minutes</strong>
                             </p>
                         </div>
 
