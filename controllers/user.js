@@ -764,53 +764,58 @@ exports.getPremiumStatus = async (req, res) => {
 };
 
 exports.setupBasicProfile = async (req, res) => {
-    const result = validationResult(req);
-    const errors = organizeErrors(result.array());
-    if (!result.isEmpty()) return res.send({ errors });
+    try {
+        const result = validationResult(req);
+        if (!result.isEmpty()) {
+            const errors = organizeErrors(result.array());
+            return res.status(400).json({ success: false, errors });
+        }
 
-    const { id: user_id } = req.user;
+        const { id: user_id } = req.user;
 
-    let success = false;
-    let message = 'User not found.';
+        const user = await User.findByPk(user_id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
 
-    const user = await User.findByPk(user_id);
-    if (!user) return res.json({ success, message });
+        // 1. Update core user fields
+        await user.update(req.body);
 
-    await user.update(req.body);
+        // 2. Upsert profile safely without relying on DB-level ON CONFLICT constraints
+        const [profile] = await UserProfile.findOrCreate({
+            where: { user_id },
+            defaults: {
+                ...req.body,
+                user_id
+            }
+        });
+        await profile.update(req.body);
 
-    req.body.user_id = user_id;
-    await UserProfile.create(req.body);
+        // 3. Maintain a single EncountersFilter record per user via upsert
+        const interestedIn = req.body.interested_in || user.interested_in || GENDER.EVERYONE;
+        const defaultMaxAge = 100;
 
-    // ---- Create default EncountersFilter for this user ----
-    // Seed with sensible defaults derived from the profile the user
-    // just submitted (interested_in), plus hardcoded fallbacks for the
-    // rest. We fall back to the user's own interested_in or EVERYONE.
-    const interestedIn = req.body.interested_in || user.interested_in || GENDER.EVERYONE;
+        await EncountersFilter.upsert({
+            user_id,
+            max_distance_km: 200,
+            interested_in: interestedIn,
+            min_age: 18,
+            max_age: defaultMaxAge,
+            online_only: false,
+            premium_only: false,
+        });
 
-    // TODO: When we have enough users, calculate max_age from the user's
-    // own age plus 10. For now, hardcode 100 as a safety net.
-    //
-    // const userAge = calculateAge(user.date_of_birth);
-    // const defaultMaxAge = userAge != null ? userAge + 10 : 100;
+        // 4. Mark setup as complete
+        await user.update({ basic_profile_setup: true });
 
-    const defaultMaxAge = 100;
-
-    await EncountersFilter.create({
-        user_id,
-        max_distance_km: 200,
-        interested_in: interestedIn,
-        min_age: 18,
-        max_age: defaultMaxAge,
-        online_only: false,
-        premium_only: false,
-    });
-
-    const basic_profile_setup = true;
-    await user.update({ basic_profile_setup });
-
-    message = 'Profile Saved.';
-    success = true;
-    res.status(200).json({ success, message });
+        return res.status(200).json({ success: true, message: 'Profile Saved.' });
+    } catch (error) {
+        console.error('Error in setupBasicProfile:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'An error occurred while setting up the basic profile.'
+        });
+    }
 };
 
 exports.setupAdvancedProfile = async (req, res) => {
