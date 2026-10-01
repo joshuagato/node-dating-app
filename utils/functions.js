@@ -35,9 +35,9 @@ exports.generateCookiesForToken = (res, token) => {
     res.cookie('token', token, {
         maxAge: (24 * 60 * 60 * 1000) * 30,                 // 30 days,
         httpOnly: false,                                    // Prevents client-side JS access (XSS protection)
-        secure: isProduction,                                      // Forces cookie to be sent over HTTPS only
-        sameSite: isProduction ? 'none' : 'lax',         // Mitigates CSRF attacks
-        partitioned: isProduction,
+        secure: isProduction,                               // Forces cookie to be sent over HTTPS only
+        sameSite: 'strict',                                 // Mitigates CSRF attacks
+        // partitioned: isProduction,
         path: '/'
     });
 }
@@ -46,9 +46,9 @@ exports.generateCookiesForCurrentUserId = (res, user_id) => {
     res.cookie('user_id', user_id, {
         maxAge: (24 * 60 * 60 * 1000) * 30,                 // 30 days,
         httpOnly: false,                                    // Prevents client-side JS access (XSS protection)
-        secure: isProduction,                                      // Forces cookie to be sent over HTTPS only
-        sameSite: isProduction ? 'none' : 'lax',         // Mitigates CSRF attacks
-        partitioned: isProduction,
+        secure: isProduction,                               // Forces cookie to be sent over HTTPS only
+        sameSite: 'strict',                                 // Mitigates CSRF attacks
+        // partitioned: isProduction,
         path: '/'
     });
 }
