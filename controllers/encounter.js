@@ -3,8 +3,9 @@ const { Sequelize, Op } = require('sequelize');
 const moment = require('moment');
 
 const { organizeErrors } = require('../utils/functions');
-const { ENCOUNTER_ACTION, MATCH_STATUS, FREE_DAILY_ENCOUNTER_LIMIT, AD_EVERY_N_CARDS,
-    FREE_DAILY_WINDOW_MS, CHAT_STARTER, GENDER } = require('../utils/constants');
+const { ENCOUNTER_ACTION, MATCH_STATUS, FREE_DAILY_ENCOUNTER_LIMIT, AD_EVERY_N_CARDS, FREE_DAILY_WINDOW_MS, CHAT_STARTER,
+    GENDER, MAX_DISTANCE_FREE_KM, MAX_DISTANCE_PREMIUM_KM, DEFAULT_MAX_DISTANCE_FREE_KM, DEFAULT_MAX_DISTANCE_PREMIUM_KM
+} = require('../utils/constants');
 const { getQuota, incrementQuota } = require('../utils/encounterQuota');
 const { sendNotification } = require('../services/notificationService');
 const { onlineUsers } = require('../sockets/chatSocket');
@@ -56,24 +57,11 @@ function formatMyself(me) {
     };
 }
 
-// controllers/encounter.js — getEncountersProfiles (read-only)
-// plus saveEncountersFilter (new)
-
-/**
- * GET /encounters
- *
- * Read-only endpoint. Returns:
- *   - the user's stored filter row (creating it lazily if missing)
- *   - the users that match that filter
- *   - quota info
- *   - "myself" for chat navigation
- *
- * This endpoint NEVER mutates the filter row. All filter persistence
- * happens in `saveEncountersFilter` (PUT /encounters/filter).
- */
+/* ---------------------------------------------------------------- */
+/* GET /encounters                                                   */
+/* ---------------------------------------------------------------- */
 exports.getEncountersProfiles = async (req, res) => {
     try {
-        // ---- 0. Auth ----
         const currentUser = req.user;
         if (!currentUser) {
             return res
@@ -83,7 +71,6 @@ exports.getEncountersProfiles = async (req, res) => {
 
         const { id: currentUserId } = currentUser;
 
-        // ---- 1. Validate & normalise location ----
         const lat = Number(currentUser.latitude);
         const lng = Number(currentUser.longitude);
 
@@ -95,8 +82,11 @@ exports.getEncountersProfiles = async (req, res) => {
             });
         }
 
-        // ---- 2. Load (or lazily create) the user's filter row ----
-        // No req.query parsing here — the filter is server-owned.
+        // ---- Determine premium up front (needed for defaults) ----
+        const quota = await getQuota(currentUser);
+        const currentUserIsPremium = quota.isPremium;
+
+        // ---- Load (or lazily create) the user's filter row ----
         let filter = await EncountersFilter.findOne({
             where: { user_id: currentUserId },
         });
@@ -104,19 +94,21 @@ exports.getEncountersProfiles = async (req, res) => {
         if (!filter) {
             filter = await EncountersFilter.create({
                 user_id: currentUserId,
-                max_distance_km: 200,
-                interested_in: currentUser.interested_in || GENDER.EVERYONE,
+                max_distance_km: currentUserIsPremium
+                    ? DEFAULT_MAX_DISTANCE_PREMIUM_KM
+                    : DEFAULT_MAX_DISTANCE_FREE_KM,
+                interested_in:
+                    currentUser.interested_in || GENDER.EVERYONE,
                 min_age: 18,
                 max_age: 100,
                 online_only: false,
                 premium_only: false,
+                filter_mode: 'distance',
+                country: null,
             });
         }
 
-        // ---- 3. Quota check (READ ONLY) ----
-        const quota = await getQuota(currentUser);
-        const currentUserIsPremium = quota.isPremium;
-
+        // ---- Quota payload ----
         const quotaPayload = quota.isPremium
             ? null
             : {
@@ -126,7 +118,7 @@ exports.getEncountersProfiles = async (req, res) => {
                 resetsAt: quota.resetsAt,
             };
 
-        // ---- 4. "myself" — user + filter + pictures ----
+        // ---- "myself" ----
         const myselfPromise = User.findByPk(currentUserId, {
             attributes: [
                 'id',
@@ -144,6 +136,7 @@ exports.getEncountersProfiles = async (req, res) => {
                 ],
                 'gender',
                 'city',
+                'country',
                 'latitude',
                 'longitude',
                 'is_online',
@@ -174,7 +167,7 @@ exports.getEncountersProfiles = async (req, res) => {
             ],
         });
 
-        // ---- 5. Short-circuit on quota exhaustion ----
+        // ---- Short-circuit on quota exhaustion ----
         if (!quota.isPremium && quota.exhausted) {
             const me = await myselfPromise;
             return res.status(200).json({
@@ -189,7 +182,7 @@ exports.getEncountersProfiles = async (req, res) => {
             });
         }
 
-        // ---- 6. Cap effective limit by remaining quota ----
+        // ---- Cap limit by remaining quota ----
         const requestedLimit = Math.max(
             1,
             Math.min(50, parseInt(req.query.limit, 10) || 20)
@@ -202,15 +195,28 @@ exports.getEncountersProfiles = async (req, res) => {
             ? requestedLimit
             : Math.min(requestedLimit, quota.remaining);
 
-        // ---- 7. Effective filters (single source of truth: the row) ----
-        const maxDistanceKm = filter.max_distance_km;
-        const interestedIn = filter.interested_in;
-        const minAge = filter.min_age;
-        const maxAge = filter.max_age;
-        const onlineOnly = currentUserIsPremium ? filter.online_only : false;
-        const premiumOnly = currentUserIsPremium ? filter.premium_only : false;
+        // ---- Effective filter values ----
+        // For free users we always force 'distance' mode — country mode is
+        // a premium feature.
+        const isCountryMode =
+            currentUserIsPremium && filter.filter_mode === 'country';
+        const onlineOnly = currentUserIsPremium
+            ? filter.online_only
+            : false;
+        const premiumOnly = currentUserIsPremium
+            ? filter.premium_only
+            : false;
 
-        // ---- 8. Build WHERE conditions ----
+        // Distance caps: free = 1000, premium = 3000.
+        const maxDistanceAllowed = currentUserIsPremium
+            ? MAX_DISTANCE_PREMIUM_KM
+            : MAX_DISTANCE_FREE_KM;
+        const maxDistanceKm = Math.min(
+            filter.max_distance_km || maxDistanceAllowed,
+            maxDistanceAllowed
+        );
+
+        // ---- Shared SQL fragments ----
         const distanceLiteral = Sequelize.literal(`
             ROUND(
                 (
@@ -231,32 +237,46 @@ exports.getEncountersProfiles = async (req, res) => {
             DATE_PART('year', AGE(CURRENT_DATE, "User"."date_of_birth"))::integer
         `);
 
+        // ---- Build AND conditions ----
         const andConditions = [
-            Sequelize.literal(`
-                (
-                    6371 * acos(
-                        LEAST(1, GREATEST(-1,
-                            cos(radians(:lat))
-                            * cos(radians("User"."latitude"))
-                            * cos(radians("User"."longitude") - radians(:lng))
-                            + sin(radians(:lat))
-                            * sin(radians("User"."latitude"))
-                        ))
-                    )
-                ) <= :maxDistance
-            `),
-            Sequelize.where(ageLiteral, { [Op.gte]: minAge }),
-            Sequelize.where(ageLiteral, { [Op.lte]: maxAge }),
+            Sequelize.where(ageLiteral, {
+                [Op.gte]: filter.min_age,
+            }),
+            Sequelize.where(ageLiteral, {
+                [Op.lte]: filter.max_age,
+            }),
         ];
 
+        // Distance constraint only applies in distance mode.
+        // (Country mode drops the distance constraint entirely.)
+        if (!isCountryMode) {
+            andConditions.push(
+                Sequelize.literal(`
+                    (
+                        6371 * acos(
+                            LEAST(1, GREATEST(-1,
+                                cos(radians(:lat))
+                                * cos(radians("User"."latitude"))
+                                * cos(radians("User"."longitude") - radians(:lng))
+                                + sin(radians(:lat))
+                                * sin(radians("User"."latitude"))
+                            ))
+                        )
+                    ) <= :maxDistance
+                `)
+            );
+        }
+
+        // Gender / online / premium clauses
         const genderClause = {};
         if (
-            interestedIn &&
-            interestedIn !== GENDER.EVERYONE &&
-            interestedIn !== GENDER.EVERYONE
+            filter.interested_in &&
+            filter.interested_in !== GENDER.EVERYONE
         ) {
             genderClause.gender =
-                interestedIn === GENDER.MEN ? GENDER.MAN : GENDER.WOMAN;
+                filter.interested_in === GENDER.MEN
+                    ? GENDER.MAN
+                    : GENDER.WOMAN;
         }
 
         const onlineClause = {};
@@ -266,10 +286,20 @@ exports.getEncountersProfiles = async (req, res) => {
             if (premiumOnly) premiumClause.is_premium = true;
         }
 
-        // ---- 9. Profile query ----
-        // NOTE: This now selects the same profile-sourced fields that
-        // Passed / DislikedByMe return, so the profile detail modal on
-        // the Encounters page can render without a second fetch.
+        // Country clause (only used in country mode)
+        const countryClause = {};
+        if (isCountryMode && filter.country) {
+            // Case-insensitive exact match against the users table.
+            countryClause.country = Sequelize.where(
+                Sequelize.fn('LOWER', Sequelize.col('User.country')),
+                Sequelize.fn(
+                    'LOWER',
+                    Sequelize.literal(`'${filter.country.replace(/'/g, "''")}'`)
+                )
+            );
+        }
+
+        // ---- Query ----
         const profilesPromise = User.findAll({
             attributes: [
                 'id',
@@ -287,11 +317,11 @@ exports.getEncountersProfiles = async (req, res) => {
                 ],
                 'gender',
                 'city',
+                'country',
                 [ageLiteral, 'age'],
                 [distanceLiteral, 'distance_from'],
                 'is_online',
                 'last_seen',
-                // ---- Profile-sourced fields for the modal ----
                 [Sequelize.literal('"profile"."bio"'), 'bio'],
                 [Sequelize.literal('"profile"."education"'), 'education'],
                 [
@@ -337,11 +367,15 @@ exports.getEncountersProfiles = async (req, res) => {
                 ...genderClause,
                 ...onlineClause,
                 ...premiumClause,
+                ...countryClause,
                 [Op.and]: andConditions,
             },
             order: [
                 ['is_online', 'DESC'],
                 ['last_seen', 'DESC NULLS LAST'],
+                // In country mode, ordering by distance is less meaningful
+                // but harmless — you can swap this to `['last_seen', 'DESC']`
+                // if you prefer country results to be purely recency-ordered.
                 [Sequelize.literal('distance_from'), 'ASC'],
             ],
             limit: effectiveLimit,
@@ -355,7 +389,6 @@ exports.getEncountersProfiles = async (req, res) => {
             profilesPromise,
         ]);
 
-        // ---- 10. Respond ----
         return res.json({
             success: true,
             myself: formatMyself(me),
@@ -375,15 +408,9 @@ exports.getEncountersProfiles = async (req, res) => {
     }
 };
 
-/**
- * PUT /encounters/filter
- *
- * Persists the current user's encounters filter. This is the ONLY
- * endpoint that writes to EncountersFilter. Called explicitly by the
- * frontend when the user taps "Apply Filters" in the modal.
- *
- * Body: { max_distance_km, interested_in, min_age, max_age, online_only, premium_only }
- */
+/* ---------------------------------------------------------------- */
+/* PUT /encounters/filter                                            */
+/* ---------------------------------------------------------------- */
 exports.saveEncountersFilter = async (req, res) => {
     try {
         const currentUser = req.user;
@@ -395,30 +422,64 @@ exports.saveEncountersFilter = async (req, res) => {
 
         const { id: currentUserId } = currentUser;
 
-        // ---- 1. Validate body ----
+        // Determine premium so we know which caps/modes are allowed.
+        const quota = await getQuota(currentUser);
+        const currentUserIsPremium = quota.isPremium;
+
+        const maxDistanceAllowed = currentUserIsPremium
+            ? MAX_DISTANCE_PREMIUM_KM
+            : MAX_DISTANCE_FREE_KM;
+
         const body = req.body || {};
 
-        const maxDistanceKm = clamp(
-            Number(body.max_distance_km),
-            1,
-            500
-        );
+        // ---- Distance (clamped to the current user's cap) ----
+        const rawDistance = Number(body.max_distance_km);
+        const maxDistanceKm = Number.isFinite(rawDistance)
+            ? clamp(rawDistance, 1, maxDistanceAllowed)
+            : currentUserIsPremium
+                ? DEFAULT_MAX_DISTANCE_PREMIUM_KM
+                : DEFAULT_MAX_DISTANCE_FREE_KM;
+
+        // ---- Age ----
         const minAge = clamp(parseInt(body.min_age, 10), 18, 100);
         const maxAge = clamp(parseInt(body.max_age, 10), 18, 100);
+        const [safeMinAge, safeMaxAge] =
+            minAge <= maxAge ? [minAge, maxAge] : [maxAge, minAge];
 
+        // ---- Interested in ----
         const validGenders = Object.values(GENDER);
         const interestedIn = validGenders.includes(body.interested_in)
             ? body.interested_in
             : currentUser.interested_in || GENDER.EVERYONE;
 
-        // Keep min <= max if the client sent an inverted range.
-        const [safeMinAge, safeMaxAge] =
-            minAge <= maxAge ? [minAge, maxAge] : [maxAge, minAge];
-
+        // ---- Toggles ----
         const onlineOnly = parseBool(body.online_only) ?? false;
         const premiumOnly = parseBool(body.premium_only) ?? false;
 
-        // ---- 2. Upsert the row ----
+        // ---- Mode (country vs distance) ----
+        // Free users are silently coerced to 'distance'.
+        const requestedMode =
+            body.filter_mode === 'country' ? 'country' : 'distance';
+        const filterMode = currentUserIsPremium
+            ? requestedMode
+            : 'distance';
+
+        // ---- Country ----
+        // Only meaningful in country mode. Free users always get null.
+        let country = null;
+        if (filterMode === 'country' && body.country) {
+            const trimmed = String(body.country).trim();
+            if (trimmed.length > 0 && trimmed.length <= 100) {
+                country = trimmed;
+            }
+        }
+
+        // If country mode was requested but no valid country was supplied,
+        // fall back to distance mode rather than silently matching nothing.
+        const finalMode =
+            filterMode === 'country' && !country ? 'distance' : filterMode;
+
+        // ---- Upsert ----
         let filter = await EncountersFilter.findOne({
             where: { user_id: currentUserId },
         });
@@ -430,6 +491,8 @@ exports.saveEncountersFilter = async (req, res) => {
             max_age: safeMaxAge,
             online_only: onlineOnly,
             premium_only: premiumOnly,
+            filter_mode: finalMode,
+            country: finalMode === 'country' ? country : null,
         };
 
         if (!filter) {
@@ -441,12 +504,6 @@ exports.saveEncountersFilter = async (req, res) => {
             await filter.update(values);
         }
 
-        // ---- 3. Respond with the persisted state ----
-        // Determine premium status so we can echo the effective values the
-        // server will actually apply (free users can't use the toggles).
-        const quota = await getQuota(currentUser);
-        const currentUserIsPremium = quota.isPremium;
-
         return res.json({
             success: true,
             filter: formatFilter(filter, currentUserIsPremium),
@@ -456,6 +513,69 @@ exports.saveEncountersFilter = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to save encounters filter',
+            error: error.message,
+        });
+    }
+};
+
+/* ---------------------------------------------------------------- */
+/* GET /encounters/filter-countries                                  */
+/* Returns the distinct, non-null countries present in the users     */
+/* table, with a count per country, sorted alphabetically.           */
+/* ---------------------------------------------------------------- */
+exports.getFilterCountries = async (req, res) => {
+    try {
+        const currentUser = req.user;
+        if (!currentUser) {
+            return res
+                .status(401)
+                .json({ success: false, message: 'Unauthorized' });
+        }
+
+        // Only return countries that have at least N users so the list
+        // stays useful (a country with 1 lonely user isn't a great filter).
+        const MIN_USERS_PER_COUNTRY = 2;
+
+        const rows = await User.findAll({
+            attributes: [
+                [Sequelize.fn('TRIM', Sequelize.col('country')), 'country'],
+                [Sequelize.fn('COUNT', Sequelize.col('id')), 'user_count'],
+            ],
+            where: {
+                country: {
+                    [Op.and]: [
+                        { [Op.ne]: null },
+                        { [Op.ne]: '' },
+                    ],
+                },
+                // Don't show the current user's own country twice; it's fine
+                // either way, but excluding self keeps the count honest.
+                id: { [Op.ne]: currentUser.id },
+            },
+            group: [Sequelize.fn('TRIM', Sequelize.col('country'))],
+            having: Sequelize.literal(
+                `COUNT("User"."id") >= ${MIN_USERS_PER_COUNTRY}`
+            ),
+            order: [[Sequelize.fn('TRIM', Sequelize.col('country')), 'ASC']],
+            raw: true,
+        });
+
+        const countries = rows
+            .map((r) => ({
+                country: r.country,
+                user_count: Number(r.user_count),
+            }))
+            .filter((c) => c.country);
+
+        return res.json({
+            success: true,
+            countries,
+        });
+    } catch (error) {
+        console.error('Error fetching filter countries:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch filter countries',
             error: error.message,
         });
     }
@@ -478,21 +598,32 @@ function parseBool(v) {
     return null;
 }
 
-/**
- * Format the filter row for the response.
- *
- * For free users, the toggles are forced to `false` regardless of what's
- * stored, so the frontend renders the locked state consistently.
- */
 function formatFilter(filter, isPremium) {
     if (!filter) return null;
+
+    const maxDistanceAllowed = isPremium
+        ? MAX_DISTANCE_PREMIUM_KM
+        : MAX_DISTANCE_FREE_KM;
+
+    // Country mode is premium-only — free users always see distance mode.
+    const mode =
+        isPremium && filter.filter_mode === 'country'
+            ? 'country'
+            : 'distance';
+
     return {
-        max_distance_km: filter.max_distance_km,
+        max_distance_km: Math.min(
+            filter.max_distance_km || maxDistanceAllowed,
+            maxDistanceAllowed
+        ),
         interested_in: filter.interested_in,
         min_age: filter.min_age,
         max_age: filter.max_age,
         online_only: isPremium ? filter.online_only : false,
         premium_only: isPremium ? filter.premium_only : false,
+        filter_mode: mode,
+        country: mode === 'country' ? filter.country : null,
+        max_distance_km: maxDistanceAllowed, // handy for the slider max
     };
 }
 
