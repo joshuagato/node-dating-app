@@ -366,8 +366,8 @@ exports.getNearbyUsers = async (req, res) => {
         whereClause.gender = targetGender;
     }
 
-    // 3. Radius filter (Set to 20 km or your desired max distance)
-    const MAX_RADIUS_KM = 200;
+    // 3. Radius filter (Set to 1000 km or your desired max distance)
+    const MAX_RADIUS_KM = 1000;
     const distanceCondition = Sequelize.where(distanceLiteral, Op.lte, MAX_RADIUS_KM);
 
     // 4. Query execution
@@ -835,7 +835,7 @@ exports.setupBasicProfile = async (req, res) => {
 
         await EncountersFilter.upsert({
             user_id,
-            max_distance_km: 200,
+            max_distance_km: 1000,
             interested_in: interestedIn,
             min_age: 18,
             max_age: defaultMaxAge,
