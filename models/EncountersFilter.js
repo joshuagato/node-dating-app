@@ -18,8 +18,8 @@ const EncountersFilter = postgresSequelize.define('EncountersFilter', {
     max_distance_km: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        defaultValue: 200,
-        validate: { min: 1, max: 500 },
+        defaultValue: 1000,
+        validate: { min: 1, max: 3000 },
     },
     interested_in: {
         type: DataTypes.ENUM,
@@ -48,6 +48,15 @@ const EncountersFilter = postgresSequelize.define('EncountersFilter', {
         type: DataTypes.BOOLEAN,
         allowNull: false,
         defaultValue: false,
+    },
+    filter_mode: {
+        type: DataTypes.ENUM('distance', 'country'),
+        defaultValue: 'distance',
+        allowNull: false,
+    },
+    country: {
+        type: DataTypes.STRING,
+        allowNull: true,
     },
 });
 
