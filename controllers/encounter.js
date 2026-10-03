@@ -534,7 +534,7 @@ exports.getFilterCountries = async (req, res) => {
 
         // Only return countries that have at least N users so the list
         // stays useful (a country with 1 lonely user isn't a great filter).
-        const MIN_USERS_PER_COUNTRY = 2;
+        const MIN_USERS_PER_COUNTRY = 1;
 
         const rows = await User.findAll({
             attributes: [
