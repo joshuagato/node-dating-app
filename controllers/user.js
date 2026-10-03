@@ -64,6 +64,8 @@ exports.getProfile = async (req, res) => {
                 'is_premium',
                 'premium_expires_at',
                 'premium_cycle',
+                'notify_new_likes',
+                'notify_new_messages',
             ],
             include: [
                 {
@@ -153,6 +155,8 @@ exports.getProfile = async (req, res) => {
                     user.latitude !== null && user.latitude !== undefined
                         ? String(user.latitude)
                         : '',
+                notify_new_likes: user.notify_new_likes,
+                notify_new_messages: user.notify_new_messages,
             },
             profile: {
                 bio: userProfile.bio || '',
@@ -467,30 +471,61 @@ exports.updateProfile = async (req, res) => {
         const userId = req.user.id;
 
         // Parse JSON payloads sent via FormData
-        const userData = typeof req.body.user === 'string' ? JSON.parse(req.body.user) : req.body.user;
-        const profileData = typeof req.body.profile === 'string' ? JSON.parse(req.body.profile) : req.body.profile;
-        const visibilityData = typeof req.body.visibility === 'string' ? JSON.parse(req.body.visibility) : req.body.visibility;
-        const pictureMeta = typeof req.body.pictureMeta === 'string' ? JSON.parse(req.body.pictureMeta) : (req.body.pictureMeta || []);
+        const userData =
+            typeof req.body.user === 'string'
+                ? JSON.parse(req.body.user)
+                : req.body.user;
+        const profileData =
+            typeof req.body.profile === 'string'
+                ? JSON.parse(req.body.profile)
+                : req.body.profile;
+        const visibilityData =
+            typeof req.body.visibility === 'string'
+                ? JSON.parse(req.body.visibility)
+                : req.body.visibility;
+        const notificationData =
+            typeof req.body.notifications === 'string'
+                ? JSON.parse(req.body.notifications)
+                : req.body.notifications;
+        const pictureMeta =
+            typeof req.body.pictureMeta === 'string'
+                ? JSON.parse(req.body.pictureMeta)
+                : req.body.pictureMeta || [];
 
         /* -------------------------------------------------------------------------- */
-        /* 1. UPDATE USER CORE DETAILS                                                */
+        /* 1. UPDATE USER CORE DETAILS + NOTIFICATION PREFERENCES                     */
         /* -------------------------------------------------------------------------- */
+        const userUpdatePayload = {};
+
         if (userData) {
-            await User.update({
-                first_name: userData.first_name,
-                last_name: userData.last_name,
-                other_names: userData.other_names,
-                gender: userData.gender,
-                interested_in: userData.interested_in,
-                date_of_birth: userData.date_of_birth,
-                country: userData.country,
-                country_code: userData.country_code
+            if (userData.first_name !== undefined) userUpdatePayload.first_name = userData.first_name;
+            if (userData.last_name !== undefined) userUpdatePayload.last_name = userData.last_name;
+            if (userData.other_names !== undefined) userUpdatePayload.other_names = userData.other_names;
+            if (userData.gender !== undefined) userUpdatePayload.gender = userData.gender;
+            if (userData.interested_in !== undefined) userUpdatePayload.interested_in = userData.interested_in;
+            if (userData.date_of_birth !== undefined) userUpdatePayload.date_of_birth = userData.date_of_birth;
+            if (userData.country !== undefined) userUpdatePayload.country = userData.country;
+            if (userData.country_code !== undefined) {
+                userUpdatePayload.country_code = userData.country_code
                     ? userData.country_code.toLowerCase()
-                    : null,
-                city: userData.city,
-                latitude: userData.latitude,
-                longitude: userData.longitude,
-            }, {
+                    : null;
+            }
+            if (userData.city !== undefined) userUpdatePayload.city = userData.city;
+            if (userData.latitude !== undefined) userUpdatePayload.latitude = userData.latitude;
+            if (userData.longitude !== undefined) userUpdatePayload.longitude = userData.longitude;
+        }
+
+        if (notificationData) {
+            if (notificationData.notify_new_likes !== undefined) {
+                userUpdatePayload.notify_new_likes = Boolean(notificationData.notify_new_likes);
+            }
+            if (notificationData.notify_new_messages !== undefined) {
+                userUpdatePayload.notify_new_messages = Boolean(notificationData.notify_new_messages);
+            }
+        }
+
+        if (Object.keys(userUpdatePayload).length > 0) {
+            await User.update(userUpdatePayload, {
                 where: { id: userId },
                 transaction,
             });
@@ -535,8 +570,6 @@ exports.updateProfile = async (req, res) => {
         /* -------------------------------------------------------------------------- */
         /* 3. REORDER EXISTING PICTURES (no file I/O)                                 */
         /* -------------------------------------------------------------------------- */
-        // The client sends the full ordering in `pictureMeta`, so reorder
-        // regardless of whether new files are being uploaded.
         for (const meta of pictureMeta) {
             if (meta.dbId) {
                 await UserPicture.update(
@@ -579,20 +612,25 @@ exports.updateProfile = async (req, res) => {
                         });
 
                         imagePath = uploadResult.secure_url;
-
                     } else if (platform === 'vps') {
                         // Option B: Relative disk path
-                        imagePath = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
-
+                        imagePath = path
+                            .relative(process.cwd(), file.path)
+                            .replace(/\\/g, '/');
                     } else {
-                        throw new Error('Invalid or missing HOSTING_PLATFORM environment variable.');
+                        throw new Error(
+                            'Invalid or missing HOSTING_PLATFORM environment variable.'
+                        );
                     }
 
-                    await UserPicture.create({
-                        user_id: userId,
-                        path: imagePath,
-                        position,
-                    }, { transaction });
+                    await UserPicture.create(
+                        {
+                            user_id: userId,
+                            path: imagePath,
+                            position,
+                        },
+                        { transaction }
+                    );
                 }
             }
         }
