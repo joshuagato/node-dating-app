@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const CryptoJS = require('crypto-js');
 const { createSigner } = require('fast-jwt');
 const bcrypt = require('bcryptjs');
 
@@ -160,6 +161,19 @@ exports.checkForChangedPasswordInThePast = async (userPasswordResets, password) 
 
     return message;
 }
+
+const SECRET_KEY = process.env.CRYPTO_SECRET_KEY;
+
+exports.decryptText = (cipherText) => {
+    try {
+        const bytes = CryptoJS.AES.decrypt(cipherText, SECRET_KEY);
+        const originalText = bytes.toString(CryptoJS.enc.Utf8);
+        return originalText;
+    } catch (error) {
+        console.error("Decryption failed:", error);
+        return null;
+    }
+};
 
 exports.capitalize = string => string.charAt(0).toUpperCase() + string.substring(1);
 
