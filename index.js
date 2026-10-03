@@ -75,10 +75,12 @@ server.listen(port, async () => {
     log.magenta(`Running on http://localhost:${port}`);
     await connectPostgreSql();
 
-    // Only start the cron once the DB is confirmed reachable
-    startExpireSubscriptionsJob();
+    if (process.env.NODE_ENV !== 'development') {
+        // Only start the cron once the DB is confirmed reachable
+        startExpireSubscriptionsJob();
 
-    keepRenderAwake();
+        keepRenderAwake();
+    }
 });
 
 
