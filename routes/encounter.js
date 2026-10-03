@@ -4,7 +4,7 @@ const router = express.Router();
 const { IsAuthenticated } = require('../middlewares/isAuthenticated');
 const { likeUser, dislikeUser, getUsersWhoLikeMe, getUsersWhoDisLikeMe,
     getUsersDisLikedByMe, getNewLikesCount, getEncountersProfiles,
-    markLikesAsSeen, saveEncountersFilter
+    markLikesAsSeen, saveEncountersFilter, getFilterCountries
 } = require('../controllers/encounter');
 const { validateName, validatePassword, validateConfirmPassword, validateLocation,
     validateCoordinates
@@ -12,6 +12,8 @@ const { validateName, validatePassword, validateConfirmPassword, validateLocatio
 
 
 router.get('/get-encounters-profiles', IsAuthenticated, getEncountersProfiles);
+
+router.get('/filter-countries', IsAuthenticated, getFilterCountries);
 
 router.put('/filter', IsAuthenticated, saveEncountersFilter);
 
