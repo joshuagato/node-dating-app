@@ -32,6 +32,8 @@ const User = postgresSequelize.define('User',
         is_premium: { type: DataTypes.BOOLEAN, defaultValue: false },
         premium_expires_at: { type: DataTypes.DATE, allowNull: true },
         premium_cycle: { type: DataTypes.STRING, allowNull: true },
+        notify_new_likes: { type: DataTypes.BOOLEAN, defaultValue: true, allowNull: false },
+        notify_new_messages: { type: DataTypes.BOOLEAN, defaultValue: true, allowNull: false },
     },
 );
 
