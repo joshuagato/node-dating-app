@@ -6,6 +6,8 @@ const { organizeErrors } = require('../utils/functions');
 const { ENCOUNTER_ACTION, MATCH_STATUS, FREE_DAILY_ENCOUNTER_LIMIT, AD_EVERY_N_CARDS,
     FREE_DAILY_WINDOW_MS, CHAT_STARTER, GENDER } = require('../utils/constants');
 const { getQuota, incrementQuota } = require('../utils/encounterQuota');
+const { sendNotification } = require('../services/notificationService');
+const { onlineUsers } = require('../sockets/chatSocket');
 
 const Encounter = require('../models/Encounter');
 const Match = require('../models/Match');
@@ -594,6 +596,23 @@ exports.likeUser = async (req, res) => {
         // ---- 5. Quota ----
         const quota = await getQuota(req.user);
         await incrementQuota(quota, 1);
+
+        if (!onlineUsers.has(recipient_id)) {
+            const recipient = await User.findByPk(recipient_id);
+            const { notify_new_likes } = recipient;
+
+            if (notify_new_likes) {
+                await sendNotification({
+                    recipientId: recipient_id,
+                    actorId: initiator_id,
+                    type: 'LIKE',
+                    title: 'New Like! ❤️',
+                    body: 'Someone liked your profile on Crushr!',
+                    metadata: { url: '/likes' },
+                    app: req.app
+                });
+            }
+        }
 
         return res.send({
             success: true,

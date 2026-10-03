@@ -5,8 +5,9 @@ const { Sequelize, Op, where } = require('sequelize');
 const { generateEmailVerificationCode, generatePasswordResetVerificationCode, generateTokenForUserId,
     generateCookiesForToken, generateCookiesForCurrentUserId, organizeErrors, deleteUserFields,
     checkForVerificationCodeExpiry, checkForChangedPasswordInThePast, setUserEmailVerificationRequest,
-    setUserPasswordResetRequest, calculateAge
+    setUserPasswordResetRequest, calculateAge, decryptText
 } = require('../utils/functions');
+const { sendNotification } = require('../services/notificationService');
 const { CHAT_STARTER } = require('../utils/constants');
 const { onlineUsers } = require('../sockets/chatSocket');
 
@@ -93,6 +94,21 @@ exports.sendMessage = async (req, res) => {
     if (onlineUsers.has(recipient_id)) {
         const io = req.app.get('io');
         io.to(`user_${recipient_id}`).emit('new_message', { message });
+    } else {
+        const recipient = await User.findByPk(recipient_id);
+        const { notify_new_messages } = recipient;
+
+        if (notify_new_messages) {
+            await sendNotification({
+                recipientId: recipient_id,
+                actorId: sender_id,
+                type: 'MESSAGE',
+                title: 'New Message 💬',
+                body: decryptText(content),
+                metadata: { url: `/chats` },
+                app: req.app
+            });
+        }
     }
 
     res.send({ success: true, message });
